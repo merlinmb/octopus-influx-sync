@@ -1,0 +1,26 @@
+services:
+  octopus-influx-sync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: octopus-influx-sync:latest
+    container_name: octopus-influx-sync
+    restart: unless-stopped
+
+    # All secrets are injected via environment — never baked into the image.
+    # On the Pi, create a .env file alongside this docker-compose.yml.
+    environment:
+      - OCTOPUS_API_KEY=${OCTOPUS_API_KEY}
+      - INFLUXDB_HOST=${INFLUXDB_HOST}
+      - INFLUXDB_PORT=${INFLUXDB_PORT:-8086}
+      - INFLUXDB_PROTOCOL=${INFLUXDB_PROTOCOL:-http}
+      - INFLUXDB_DATABASE=${INFLUXDB_DATABASE}
+      - INFLUXDB_USERNAME=${INFLUXDB_USERNAME}
+      - INFLUXDB_PASSWORD=${INFLUXDB_PASSWORD}
+
+    # Structured log rotation — keeps the Pi's SD card happy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
