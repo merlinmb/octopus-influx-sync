@@ -156,13 +156,24 @@ async function getLastTimestamp(influx, measurement) {
 
 /**
  * Calculates the 'from' date for a sync run.
- * If data already exists, overlaps by 2 hours to catch any late-arriving points.
- * If no data, defaults to lookbackDays ago.
+ *
+ * Priority order:
+ *  1. BACKFILL_DAYS env var — ignores existing data and forces a full lookback.
+ *     Set this to trigger a historical backfill, then remove it for normal operation.
+ *  2. Last recorded timestamp in InfluxDB — overlaps by 2 hours to catch
+ *     any late-arriving points from Octopus.
+ *  3. Default 365-day lookback — used only when a measurement is completely empty.
  */
-function calcFrom(lastTimestamp, lookbackDays = 7) {
+function calcFrom(lastTimestamp, lookbackDays = 365) {
+  const forcedDays = process.env.BACKFILL_DAYS ? parseInt(process.env.BACKFILL_DAYS, 10) : null;
+  if (forcedDays) {
+    const forced = new Date();
+    forced.setDate(forced.getDate() - forcedDays);
+    console.log(`  (BACKFILL_DAYS=${forcedDays} override active — ignoring last stored timestamp)`);
+    return forced;
+  }
   if (lastTimestamp) {
-    const overlap = new Date(lastTimestamp.getTime() - 2 * 60 * 60 * 1000);
-    return overlap;
+    return new Date(lastTimestamp.getTime() - 2 * 60 * 60 * 1000);
   }
   const fallback = new Date();
   fallback.setDate(fallback.getDate() - lookbackDays);
@@ -302,8 +313,8 @@ async function runConsumptionSync(apiKey, influx) {
     ]);
 
     const now = new Date();
-    const elecFrom = calcFrom(lastElec, 7);
-    const gasFrom = calcFrom(lastGas, 7);
+    const elecFrom = calcFrom(lastElec, 365);
+    const gasFrom = calcFrom(lastGas, 365);
 
     await syncElectricityConsumption(apiKey, influx, elecFrom, now);
     await syncGasConsumption(apiKey, influx, gasFrom, now);
@@ -331,7 +342,7 @@ async function runTariffSync(apiKey, influx) {
 
   try {
     const lastRate = await getLastTimestamp(influx, 'electricity_tariff');
-    const from = calcFrom(lastRate, 7);
+    const from = calcFrom(lastRate, 365);
 
     // Fetch through end of tomorrow so we always have next-day rates
     const endOfTomorrow = new Date();

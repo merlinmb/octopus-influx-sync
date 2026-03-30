@@ -17,6 +17,9 @@ services:
       - INFLUXDB_DATABASE=${INFLUXDB_DATABASE}
       - INFLUXDB_USERNAME=${INFLUXDB_USERNAME}
       - INFLUXDB_PASSWORD=${INFLUXDB_PASSWORD}
+      # Optional: set to a number of days to force a historical backfill on next
+      # startup, ignoring the last stored timestamp. Remove after the backfill run.
+      - BACKFILL_DAYS=${BACKFILL_DAYS:-}
 
     # Structured log rotation — keeps the Pi's SD card happy
     logging:
