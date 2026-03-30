@@ -8,6 +8,8 @@ A Node.js service to sync Octopus Energy smart meter data and Agile tariff rates
 - Schedules data syncs using cron
 - Deployable via PowerShell or Bash scripts
 - Docker support for easy deployment
+- 
+<img width="3418" height="1090" alt="image" src="https://github.com/user-attachments/assets/3c7b978a-a890-427b-b7ad-c7842467fc8e" />
 
 ## Prerequisites
 - Node.js and npm installed (v18+ recommended)
