@@ -39,6 +39,7 @@ function loadConfig() {
 
   return {
     octopusApiKey: required.OCTOPUS_API_KEY,
+    octopusAccountNumber: process.env.OCTOPUS_ACCOUNT_NUMBER || null,
     influx: {
       host: required.INFLUXDB_HOST,
       port: parseInt(process.env.INFLUXDB_PORT || '8086', 10),
@@ -66,6 +67,10 @@ function loadConfig() {
  * measurement: electricity_tariff
  *   tags:   tariff_code
  *   fields: unit_rate_pence (float), unit_rate_ex_vat_pence (float)
+ *
+ * measurement: ev_charge_daily
+ *   tags:   account_number
+ *   fields: charge_kwh (float), charge_cost_pence (float), cost_complete (boolean)
  */
 function createInfluxClient(config) {
   return new Influx.InfluxDB({
@@ -93,6 +98,15 @@ function createInfluxClient(config) {
           unit_rate_ex_vat_pence: Influx.FieldType.FLOAT,
         },
         tags: ['tariff_code'],
+      },
+      {
+        measurement: 'ev_charge_daily',
+        fields: {
+          charge_kwh: Influx.FieldType.FLOAT,
+          charge_cost_pence: Influx.FieldType.FLOAT,
+          cost_complete: Influx.FieldType.BOOLEAN,
+        },
+        tags: ['account_number'],
       },
     ],
   });
@@ -130,6 +144,90 @@ async function fetchAllPages(apiKey, url, params = {}) {
   }
 
   return results;
+}
+
+/**
+ * Octopus retains completed EV dispatches for only a few days. Fetch the
+ * current account's available dispatches and refresh daily totals from them.
+ */
+async function fetchCompletedDispatches(apiKey, accountNumber) {
+  const query = `query CompletedDispatches($accountNumber: String!) {
+    planner {
+      completedDispatches(accountNumber: $accountNumber) {
+        start
+        end
+        chargeInKwh
+        source
+      }
+    }
+  }`;
+  const response = await axios.post(
+    'https://api.octopus.energy/v1/graphql/',
+    { query, variables: { accountNumber } },
+    {
+      auth: { username: apiKey, password: '' },
+      timeout: 30000,
+    }
+  );
+
+  if (response.data.errors && response.data.errors.length > 0) {
+    throw new Error(response.data.errors.map((error) => error.message).join('; '));
+  }
+
+  const dispatches = response.data.data?.planner?.completedDispatches;
+  if (!Array.isArray(dispatches)) {
+    throw new Error('Octopus GraphQL response did not contain completedDispatches.');
+  }
+  return dispatches;
+}
+
+function londonDateKey(date) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function addCalendarDays(dateKey, days) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function calculateDispatchCostPence(dispatch, rates) {
+  const start = new Date(dispatch.start).getTime();
+  const end = new Date(dispatch.end).getTime();
+  const chargeKwh = Number(dispatch.chargeInKwh);
+  const duration = end - start;
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || duration <= 0 || !Number.isFinite(chargeKwh)) {
+    return null;
+  }
+
+  let coveredMs = 0;
+  let matchedRate = null;
+
+  for (const rate of rates) {
+    const rateStart = new Date(rate.valid_from).getTime();
+    const rateEnd = new Date(rate.valid_to).getTime();
+    const overlap = Math.max(0, Math.min(end, rateEnd) - Math.max(start, rateStart));
+    if (overlap === 0) continue;
+
+    coveredMs += overlap;
+    matchedRate = rate;
+  }
+
+  if (coveredMs < duration || !matchedRate) return null;
+  const rateStart = new Date(matchedRate.valid_from).getTime();
+  const rateEnd = new Date(matchedRate.valid_to).getTime();
+  if (start < rateStart || end > rateEnd) return null;
+
+  const unitRate = Number(matchedRate.value_inc_vat);
+  return Number.isFinite(unitRate) ? chargeKwh * unitRate : null;
 }
 
 // ─── InfluxDB Query Helpers ───────────────────────────────────────────────────
@@ -292,6 +390,79 @@ async function syncAgileRates(apiKey, influx, from, to) {
   return points.length;
 }
 
+/**
+ * Syncs Octopus smart-charging dispatches into daily EV totals. Octopus only
+ * retains a short dispatch history, so the latest three London calendar days
+ * are re-fetched and rewritten on every run to pick up corrections.
+ */
+async function syncEvChargeDaily(apiKey, accountNumber, influx) {
+  const label = '[EV Charge]';
+  const now = new Date();
+  const from = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+  const today = londonDateKey(now);
+  const days = [-2, -1, 0].map((offset) => addCalendarDays(today, offset));
+  const totals = new Map(days.map((day) => [day, {
+    chargeKwh: 0,
+    chargeCostPence: 0,
+    costComplete: true,
+  }]));
+
+  console.log(`${label} Refreshing dispatches since ${from.toISOString()}`);
+
+  const [dispatches, rates] = await Promise.all([
+    fetchCompletedDispatches(apiKey, accountNumber),
+    fetchAllPages(apiKey, ELECTRICITY.agileRatesUrl, {
+      period_from: from.toISOString(),
+      period_to: now.toISOString(),
+    }),
+  ]);
+
+  for (const dispatch of dispatches) {
+    const start = new Date(dispatch.start);
+    const startMs = start.getTime();
+    const chargeKwh = Number(dispatch.chargeInKwh);
+    if (!Number.isFinite(startMs) || startMs < from.getTime() || startMs > now.getTime() ||
+      dispatch.chargeInKwh == null ||
+        !Number.isFinite(chargeKwh) || chargeKwh < 0) {
+      continue;
+    }
+
+    const total = totals.get(londonDateKey(start));
+    if (!total) continue;
+
+    total.chargeKwh += chargeKwh;
+    const costPence = calculateDispatchCostPence(dispatch, rates);
+    if (costPence === null) {
+      total.costComplete = false;
+    } else {
+      total.chargeCostPence += costPence;
+    }
+  }
+
+  const points = days.map((day) => {
+    const total = totals.get(day);
+    return {
+      measurement: 'ev_charge_daily',
+      tags: { account_number: accountNumber },
+      fields: {
+        charge_kwh: total.chargeKwh,
+        charge_cost_pence: total.chargeCostPence,
+        cost_complete: total.costComplete,
+      },
+      // UTC midnight is a stable point key for each London calendar date.
+      timestamp: new Date(`${day}T00:00:00Z`),
+    };
+  });
+
+  await influx.writePoints(points, { precision: 's' });
+  const incompleteDays = days.filter((day) => !totals.get(day).costComplete);
+  console.log(`${label} Updated ${points.length} daily totals.`);
+  if (incompleteDays.length > 0) {
+    console.warn(`${label} Exact cost unavailable for ${incompleteDays.join(', ')}; a dispatch crossed tariff slots or had no matching rate.`);
+  }
+  return points.length;
+}
+
 // ─── Scheduled Jobs ───────────────────────────────────────────────────────────
 
 /**
@@ -360,6 +531,17 @@ async function runTariffSync(apiKey, influx) {
   }
 }
 
+async function runEvChargeSync(apiKey, accountNumber, influx) {
+  try {
+    await syncEvChargeDaily(apiKey, accountNumber, influx);
+  } catch (err) {
+    console.error('[EV Charge] Sync failed:', err.message);
+    if (err.response) {
+      console.error('  HTTP', err.response.status, err.response.data);
+    }
+  }
+}
+
 // ─── Entry Point ──────────────────────────────────────────────────────────────
 
 async function main() {
@@ -384,11 +566,14 @@ async function main() {
     process.exit(1);
   }
 
-  const { octopusApiKey } = config;
+  const { octopusApiKey, octopusAccountNumber } = config;
 
   // ── Initial backfill on startup ──────────────────────────────────────────
   await runConsumptionSync(octopusApiKey, influx);
   await runTariffSync(octopusApiKey, influx);
+  if (octopusAccountNumber) {
+    await runEvChargeSync(octopusApiKey, octopusAccountNumber, influx);
+  }
 
   // ── 06:00 daily — consumption sync (data ready ~24h after metering) ───────
   cron.schedule('0 6 * * *', () => runConsumptionSync(octopusApiKey, influx), {
@@ -401,6 +586,15 @@ async function main() {
     timezone: 'Europe/London',
   });
   console.log('⏰ Scheduled: tariff rate sync at 16:30 Europe/London');
+
+  if (octopusAccountNumber) {
+    cron.schedule('15 */6 * * *', () => runEvChargeSync(octopusApiKey, octopusAccountNumber, influx), {
+      timezone: 'Europe/London',
+    });
+    console.log('⏰ Scheduled: EV dispatch refresh every 6 hours Europe/London');
+  } else {
+    console.log('EV dispatch sync disabled: set OCTOPUS_ACCOUNT_NUMBER to enable it.');
+  }
 
   console.log('\nService running. Press Ctrl+C to stop.\n');
 }

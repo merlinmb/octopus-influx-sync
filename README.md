@@ -5,6 +5,7 @@ A Node.js service to sync Octopus Energy smart meter data and Agile tariff rates
 ## Features
 - Fetches and stores electricity and gas consumption data from Octopus Energy
 - Syncs Agile tariff rates daily
+- Optionally syncs Octopus smart-charging dispatches into daily EV totals
 - Schedules data syncs using cron
 - Deployable via PowerShell or Bash scripts
 - Docker support for easy deployment
@@ -51,6 +52,17 @@ A Node.js service to sync Octopus Energy smart meter data and Agile tariff rates
 ## Usage
 - The service will schedule and run data syncs automatically.
 - Logs and errors are printed to the console and available via Docker logs if running in a container.
+
+### EV charging data
+
+Set `OCTOPUS_ACCOUNT_NUMBER` alongside the Octopus API key to enable EV dispatch syncing. The service queries Octopus's GraphQL `completedDispatches` data every six hours and refreshes the current and previous two Europe/London calendar-day totals. Rewriting the same day points lets later dispatch corrections replace earlier values. Existing electricity, gas, and tariff syncs remain unchanged.
+
+The `ev_charge_daily` measurement stores `charge_kwh`, `charge_cost_pence`, and `cost_complete`, tagged by `account_number`. Cost uses the Agile tariff rates configured in `index.js`. A dispatch is priced only when its whole interval fits one half-hour rate slot; otherwise `cost_complete` is false because Octopus's dispatch response does not provide per-slot energy for splitting it precisely. Treat the day's cost as exact only when `cost_complete` is true. Octopus retains completed dispatches for only a few days, so prolonged service/API outages can leave a gap that cannot be backfilled from this endpoint.
+
+## Grafana Dashboard
+
+- To use the provided or custom Grafana dashboards with this data, your Grafana user account must have organizational rights (sufficient permissions to create dashboards and data sources).
+- When connecting Grafana to InfluxDB, ensure the data source is set to use the **Flux** query language (not InfluxQL) for full compatibility with InfluxDB 2.x and this project's schema.
 
 ## Troubleshooting
 - Ensure your `.env` file is present and correct on both your development machine and the Pi.

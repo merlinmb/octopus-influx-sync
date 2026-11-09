@@ -11,6 +11,7 @@ services:
     # On the Pi, create a .env file alongside this docker-compose.yml.
     environment:
       - OCTOPUS_API_KEY=${OCTOPUS_API_KEY}
+      - OCTOPUS_ACCOUNT_NUMBER=${OCTOPUS_ACCOUNT_NUMBER:-}
       - INFLUXDB_HOST=${INFLUXDB_HOST}
       - INFLUXDB_PORT=${INFLUXDB_PORT:-8086}
       - INFLUXDB_PROTOCOL=${INFLUXDB_PROTOCOL:-http}

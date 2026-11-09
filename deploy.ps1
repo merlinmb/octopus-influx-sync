@@ -19,12 +19,13 @@ $ErrorActionPreference = 'Stop'
 $Remote   = 'pi@homebridge.local'
 $RemoteDir = '~/octopus-influx-sync'
 
-# Files to deploy (explicit list — never touches .env, node_modules, or .git)
+# Files to deploy (explicit list — includes .env, excludes node_modules and .git)
 $FilesToCopy = @(
     'index.js'
     'package.json'
     'Dockerfile'
     'docker-compose.yml'
+    '.env'
     '.env.example'
     '.gitignore'
     'deploy.sh'
@@ -77,6 +78,10 @@ Invoke-SSH "mkdir -p $RemoteDir"
 Write-Step "Copying files to Pi..."
 
 $projectRoot = $PSScriptRoot
+$localEnvPath = Join-Path $projectRoot '.env'
+if (-not (Test-Path $localEnvPath)) {
+    throw "Local .env file not found at $localEnvPath"
+}
 
 foreach ($file in $FilesToCopy) {
     $localPath = Join-Path $projectRoot $file
@@ -92,6 +97,7 @@ foreach ($file in $FilesToCopy) {
 }
 
 Write-Host "  Done." -ForegroundColor Green
+Invoke-SSH "chmod 600 $RemoteDir/.env"
 
 # ── 4. Check .env exists on Pi ───────────────────────────────────────────────
 Write-Step "Checking .env on Pi..."
