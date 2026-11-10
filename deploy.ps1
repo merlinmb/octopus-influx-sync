@@ -22,6 +22,7 @@ $RemoteDir = '~/octopus-influx-sync'
 # Files to deploy (explicit list — includes .env, excludes node_modules and .git)
 $FilesToCopy = @(
     'index.js'
+    'monthly-costs.html'
     'package.json'
     'Dockerfile'
     'docker-compose.yml'

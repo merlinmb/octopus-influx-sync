@@ -12,6 +12,8 @@ services:
     environment:
       - OCTOPUS_API_KEY=${OCTOPUS_API_KEY}
       - OCTOPUS_ACCOUNT_NUMBER=${OCTOPUS_ACCOUNT_NUMBER:-}
+      - DASHBOARD_PORT=${DASHBOARD_PORT:-3002}
+      - GAS_UNIT_RATE_PENCE=${GAS_UNIT_RATE_PENCE:-6.24}
       - INFLUXDB_HOST=${INFLUXDB_HOST}
       - INFLUXDB_PORT=${INFLUXDB_PORT:-8086}
       - INFLUXDB_PROTOCOL=${INFLUXDB_PROTOCOL:-http}
@@ -21,6 +23,9 @@ services:
       # Optional: set to a number of days to force a historical backfill on next
       # startup, ignoring the last stored timestamp. Remove after the backfill run.
       - BACKFILL_DAYS=${BACKFILL_DAYS:-}
+
+    ports:
+      - "${DASHBOARD_PORT:-3002}:${DASHBOARD_PORT:-3002}"
 
     # Structured log rotation — keeps the Pi's SD card happy
     logging:

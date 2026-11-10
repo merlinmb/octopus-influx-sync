@@ -3,6 +3,10 @@
 const Influx = require('influx');
 const axios = require('axios');
 const cron = require('node-cron');
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 
 // ─── Meter & Tariff Constants ─────────────────────────────────────────────────
 
@@ -40,6 +44,8 @@ function loadConfig() {
   return {
     octopusApiKey: required.OCTOPUS_API_KEY,
     octopusAccountNumber: process.env.OCTOPUS_ACCOUNT_NUMBER || null,
+    dashboardPort: parseInt(process.env.DASHBOARD_PORT || '3000', 10),
+    gasUnitRatePence: parseFloat(process.env.GAS_UNIT_RATE_PENCE || '6.24'),
     influx: {
       host: required.INFLUXDB_HOST,
       port: parseInt(process.env.INFLUXDB_PORT || '8086', 10),
@@ -71,6 +77,10 @@ function loadConfig() {
  * measurement: ev_charge_daily
  *   tags:   account_number
  *   fields: charge_kwh (float), charge_cost_pence (float), cost_complete (boolean)
+ *
+ * measurement: public_ev_charge
+ *   tags:   charge_id, provider, location
+ *   fields: energy_kwh (float), cost_pence (float), notes (string)
  */
 function createInfluxClient(config) {
   return new Influx.InfluxDB({
@@ -107,6 +117,24 @@ function createInfluxClient(config) {
           cost_complete: Influx.FieldType.BOOLEAN,
         },
         tags: ['account_number'],
+      },
+      {
+        measurement: 'ev_manual_daily',
+        fields: {
+          charge_kwh: Influx.FieldType.FLOAT,
+          charge_cost_pence: Influx.FieldType.FLOAT,
+          notes: Influx.FieldType.STRING,
+        },
+        tags: ['account_number'],
+      },
+      {
+        measurement: 'public_ev_charge',
+        fields: {
+          energy_kwh: Influx.FieldType.FLOAT,
+          cost_pence: Influx.FieldType.FLOAT,
+          notes: Influx.FieldType.STRING,
+        },
+        tags: ['charge_id', 'provider', 'location'],
       },
     ],
   });
@@ -201,6 +229,70 @@ async function fetchCompletedDispatches(apiKey, accountNumber) {
   return dispatches;
 }
 
+async function fetchSmartFlexChargingSessions(apiKey, accountNumber, from, to) {
+  const tokenResponse = await axios.post(
+    'https://api.octopus.energy/v1/graphql/',
+    {
+      query: `mutation ObtainKrakenToken($input: ObtainJSONWebTokenInput!) {
+        obtainKrakenToken(input: $input) {
+          token
+        }
+      }`,
+      variables: { input: { APIKey: apiKey } },
+    },
+    { timeout: 30000 }
+  );
+
+  const tokenErrors = tokenResponse.data.errors || [];
+  if (tokenErrors.length > 0) {
+    throw new Error(tokenErrors.map((error) => error.message).join('; '));
+  }
+
+  const token = tokenResponse.data.data?.obtainKrakenToken?.token;
+  if (!token) throw new Error('Octopus GraphQL did not return an authentication token.');
+
+  const query = `query SmartFlexChargingSessions($accountNumber: String!, $after: DateTime, $before: DateTime) {
+    devices(accountNumber: $accountNumber) {
+      ... on SmartFlexChargePoint {
+        chargingSessions(after: $after, before: $before, first: 100) {
+          edges {
+            node {
+              __typename
+              start
+              end
+              energyAdded { value unit }
+              ... on SmartFlexChargingSession { type }
+            }
+          }
+        }
+      }
+    }
+  }`;
+  const response = await axios.post(
+    'https://api.octopus.energy/v1/graphql/',
+    {
+      query,
+      variables: {
+        accountNumber,
+        after: from.toISOString(),
+        before: to.toISOString(),
+      },
+    },
+    {
+      headers: { Authorization: token },
+      timeout: 30000,
+    }
+  );
+
+  if (response.data.errors && response.data.errors.length > 0) {
+    throw new Error(response.data.errors.map((error) => error.message).join('; '));
+  }
+
+  return (response.data.data?.devices || [])
+    .flatMap((device) => device.chargingSessions?.edges?.map((edge) => edge.node) || [])
+    .filter((session) => session.__typename === 'SmartFlexChargingSession' && session.type === 'SMART');
+}
+
 function londonDateKey(date) {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/London',
@@ -221,7 +313,7 @@ function addCalendarDays(dateKey, days) {
 function calculateDispatchCostPence(dispatch, rates) {
   const start = new Date(dispatch.start).getTime();
   const end = new Date(dispatch.end).getTime();
-  const chargeKwh = Number(dispatch.chargeInKwh);
+  const chargeKwh = Number(dispatch.delta);
   const duration = end - start;
 
   if (!Number.isFinite(start) || !Number.isFinite(end) || duration <= 0 || !Number.isFinite(chargeKwh)) {
@@ -233,7 +325,7 @@ function calculateDispatchCostPence(dispatch, rates) {
 
   for (const rate of rates) {
     const rateStart = new Date(rate.valid_from).getTime();
-    const rateEnd = new Date(rate.valid_to).getTime();
+    const rateEnd = rate.valid_to ? new Date(rate.valid_to).getTime() : Infinity;
     const overlap = Math.max(0, Math.min(end, rateEnd) - Math.max(start, rateStart));
     if (overlap === 0) continue;
 
@@ -243,7 +335,7 @@ function calculateDispatchCostPence(dispatch, rates) {
 
   if (coveredMs < duration || !matchedRate) return null;
   const rateStart = new Date(matchedRate.valid_from).getTime();
-  const rateEnd = new Date(matchedRate.valid_to).getTime();
+  const rateEnd = matchedRate.valid_to ? new Date(matchedRate.valid_to).getTime() : Infinity;
   if (start < rateStart || end > rateEnd) return null;
 
   const unitRate = Number(matchedRate.value_inc_vat);
@@ -270,6 +362,467 @@ async function getLastTimestamp(influx, measurement) {
     console.warn(`[InfluxDB] Could not query ${measurement}: ${err.message}`);
   }
   return null;
+}
+
+function londonMonthKey(date) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}`;
+}
+
+function shiftMonth(monthKey, amount) {
+  const [year, month] = monthKey.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1 + amount, 1)).toISOString().slice(0, 7);
+}
+
+async function queryMeasurement(influx, measurement, fields, from) {
+  try {
+    return await influx.query(
+      `SELECT ${fields.join(', ')} FROM ${measurement} WHERE time >= '${from}'`
+    );
+  } catch (err) {
+    if (/measurement not found|retention policy .* not found/i.test(err.message)) {
+      return [];
+    }
+    throw err;
+  }
+}
+
+async function getMonthlyCosts(influx, gasUnitRatePence) {
+  const currentMonth = londonMonthKey(new Date());
+  const monthKeys = Array.from({ length: 12 }, (_, index) => shiftMonth(currentMonth, index - 11));
+  const from = new Date(`${monthKeys[0]}-01T00:00:00.000Z`).toISOString();
+  const [electricityRows, tariffRows, gasRows, evRows, publicChargeRows] = await Promise.all([
+    queryMeasurement(influx, 'electricity_consumption', ['consumption_kwh'], from),
+    queryMeasurement(influx, 'electricity_tariff', ['unit_rate_pence', 'tariff_code'], from),
+    queryMeasurement(influx, 'gas_consumption', ['consumption_m3'], from),
+    queryMeasurement(influx, 'ev_charge_daily', ['charge_kwh', 'charge_cost_pence', 'cost_complete'], from),
+    queryMeasurement(influx, 'public_ev_charge', ['energy_kwh', 'cost_pence'], from),
+  ]);
+
+  const months = new Map(monthKeys.map((month) => [month, {
+    month,
+    electricityCostGbp: 0,
+    electricityKwh: 0,
+    electricityUnpricedIntervals: 0,
+    gasCostGbp: 0,
+    gasM3: 0,
+    evCostGbp: 0,
+    evKwh: 0,
+    evDays: 0,
+    publicChargeCount: 0,
+    evIncompleteDays: 0,
+    totalCostGbp: 0,
+  }]));
+  const ratesByTime = new Map();
+  for (const row of tariffRows) {
+    const time = new Date(row.time).getTime();
+    const tariffCode = String(row.tariff_code || '');
+    const current = ratesByTime.get(time);
+    const prefersRow = !current ||
+      (tariffCode.includes('IOG') && !current.tariffCode.includes('IOG'));
+    if (prefersRow) {
+      ratesByTime.set(time, { rate: Number(row.unit_rate_pence), tariffCode });
+    }
+  }
+
+  for (const row of electricityRows) {
+    const month = months.get(londonMonthKey(new Date(row.time)));
+    if (!month) continue;
+    const kwh = Number(row.consumption_kwh);
+    if (!Number.isFinite(kwh)) continue;
+    month.electricityKwh += kwh;
+    const rate = ratesByTime.get(new Date(row.time).getTime())?.rate;
+    if (Number.isFinite(rate)) {
+      month.electricityCostGbp += kwh * rate / 100;
+    } else {
+      month.electricityUnpricedIntervals += 1;
+    }
+  }
+
+  for (const row of gasRows) {
+    const month = months.get(londonMonthKey(new Date(row.time)));
+    if (!month) continue;
+    const m3 = Number(row.consumption_m3);
+    if (!Number.isFinite(m3)) continue;
+    month.gasM3 += m3;
+    month.gasCostGbp += m3 * 39.2 / 3.6 * gasUnitRatePence / 100;
+  }
+
+  for (const row of evRows) {
+    const month = months.get(londonMonthKey(new Date(row.time)));
+    if (!month) continue;
+    month.evDays += 1;
+    month.evKwh += Number(row.charge_kwh) || 0;
+    if (row.cost_complete === true || row.cost_complete === 'true') {
+      month.evCostGbp += (Number(row.charge_cost_pence) || 0) / 100;
+    } else {
+      month.evIncompleteDays += 1;
+    }
+  }
+
+  for (const row of publicChargeRows) {
+    const month = months.get(londonMonthKey(new Date(row.time)));
+    if (!month) continue;
+    month.publicChargeCount += 1;
+    month.evKwh += Number(row.energy_kwh) || 0;
+    month.evCostGbp += (Number(row.cost_pence) || 0) / 100;
+  }
+
+  for (const month of months.values()) {
+    month.totalCostGbp = month.electricityCostGbp + month.gasCostGbp + month.evCostGbp;
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    timezone: 'Europe/London',
+    gasUnitRatePence,
+    months: [...months.values()],
+  };
+}
+
+async function getRecentPublicCharges(influx) {
+  const from = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const rows = await queryMeasurement(
+    influx,
+    'public_ev_charge',
+    ['energy_kwh', 'cost_pence', 'notes', 'charge_id', 'provider', 'location'],
+    from
+  );
+
+  return rows
+    .sort((left, right) => new Date(right.time) - new Date(left.time))
+    .slice(0, 50)
+    .map((row) => ({
+      id: row.charge_id,
+      chargedAt: new Date(row.time).toISOString(),
+      provider: row.provider,
+      location: row.location,
+      energyKwh: Number(row.energy_kwh),
+      costGbp: Number(row.cost_pence) / 100,
+      notes: row.notes || '',
+    }));
+}
+
+async function getRecentManualEvTotals(influx) {
+  const from = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const rows = await queryMeasurement(
+    influx,
+    'ev_manual_daily',
+    ['charge_kwh', 'charge_cost_pence', 'notes'],
+    from
+  );
+
+  return rows
+    .sort((left, right) => new Date(right.time) - new Date(left.time))
+    .slice(0, 50)
+    .map((row) => ({
+      date: londonDateKey(new Date(row.time)),
+      energyKwh: Number(row.charge_kwh),
+      costGbp: Number(row.charge_cost_pence) / 100,
+      notes: row.notes || '',
+    }));
+}
+
+function readJsonBody(request, maxBytes = 16 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let bytes = 0;
+    let tooLarge = false;
+
+    request.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        tooLarge = true;
+      } else if (!tooLarge) {
+        chunks.push(chunk);
+      }
+    });
+    request.on('end', () => {
+      if (tooLarge) {
+        reject(Object.assign(new Error('Request body is too large.'), { statusCode: 413 }));
+        return;
+      }
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch {
+        reject(Object.assign(new Error('Request body must be valid JSON.'), { statusCode: 400 }));
+      }
+    });
+    request.on('error', reject);
+  });
+}
+
+function validatePublicCharge(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw Object.assign(new Error('Request body must be a JSON object.'), { statusCode: 400 });
+  }
+
+  const chargedAt = new Date(input.chargedAt);
+  const energyKwh = Number(input.energyKwh);
+  const costGbp = Number(input.costGbp);
+  const provider = typeof input.provider === 'string' ? input.provider.trim() : '';
+  const location = typeof input.location === 'string' ? input.location.trim() : '';
+  const notes = typeof input.notes === 'string' ? input.notes.trim() : '';
+
+  if (!Number.isFinite(chargedAt.getTime()) || chargedAt.getTime() > Date.now() + 5 * 60 * 1000) {
+    throw Object.assign(new Error('Enter a valid charge date and time that is not in the future.'), { statusCode: 400 });
+  }
+  if (input.energyKwh == null || !Number.isFinite(energyKwh) || energyKwh <= 0 || energyKwh > 300) {
+    throw Object.assign(new Error('Energy must be greater than 0 and no more than 300 kWh.'), { statusCode: 400 });
+  }
+  if (input.costGbp == null || !Number.isFinite(costGbp) || costGbp < 0 || costGbp > 1000) {
+    throw Object.assign(new Error('Cost must be between £0 and £1,000.'), { statusCode: 400 });
+  }
+  if (!provider || provider.length > 80 || location.length > 120 || notes.length > 500) {
+    throw Object.assign(new Error('Provider is required; provider, location, or note is too long.'), { statusCode: 400 });
+  }
+
+  return { chargedAt, energyKwh, costGbp, provider, location, notes };
+}
+
+function validateManualEvTotal(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw Object.assign(new Error('Request body must be a JSON object.'), { statusCode: 400 });
+  }
+
+  const date = typeof input.date === 'string' ? input.date : '';
+  const timestamp = new Date(`${date}T00:00:00.000Z`);
+  const energyKwh = Number(input.energyKwh);
+  const costGbp = Number(input.costGbp);
+  const notes = typeof input.notes === 'string' ? input.notes.trim() : '';
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(timestamp.getTime()) ||
+    timestamp.toISOString().slice(0, 10) !== date || timestamp.getTime() > Date.now()) {
+    throw Object.assign(new Error('Enter a valid past date.'), { statusCode: 400 });
+  }
+  if (input.energyKwh == null || !Number.isFinite(energyKwh) || energyKwh <= 0 || energyKwh > 300) {
+    throw Object.assign(new Error('Energy must be greater than 0 and no more than 300 kWh.'), { statusCode: 400 });
+  }
+  if (input.costGbp == null || !Number.isFinite(costGbp) || costGbp < 0 || costGbp > 1000) {
+    throw Object.assign(new Error('Cost must be between £0 and £1,000.'), { statusCode: 400 });
+  }
+  if (notes.length > 500) {
+    throw Object.assign(new Error('Note must be 500 characters or fewer.'), { statusCode: 400 });
+  }
+
+  return { date, timestamp, energyKwh, costGbp, notes };
+}
+
+function startDashboardServer(influx, config) {
+  const dashboardFile = path.join(__dirname, 'monthly-costs.html');
+  const monthlyCostsCacheTtlMs = 24 * 60 * 60 * 1000;
+  let monthlyCostsCache;
+  let monthlyCostsCacheExpiresAt = 0;
+  let monthlyCostsCachePromise;
+  let monthlyCostsCacheVersion = 0;
+
+  function invalidateMonthlyCostsCache() {
+    monthlyCostsCacheVersion += 1;
+    monthlyCostsCache = null;
+    monthlyCostsCacheExpiresAt = 0;
+    monthlyCostsCachePromise = null;
+  }
+
+  function getCachedMonthlyCosts() {
+    if (monthlyCostsCache && Date.now() < monthlyCostsCacheExpiresAt) {
+      return Promise.resolve(monthlyCostsCache);
+    }
+    if (!monthlyCostsCachePromise) {
+      const requestVersion = monthlyCostsCacheVersion;
+      monthlyCostsCachePromise = getMonthlyCosts(influx, config.gasUnitRatePence)
+        .then((result) => {
+          if (requestVersion === monthlyCostsCacheVersion) {
+            monthlyCostsCache = result;
+            monthlyCostsCacheExpiresAt = Date.now() + monthlyCostsCacheTtlMs;
+          }
+          return result;
+        })
+        .finally(() => {
+          if (requestVersion === monthlyCostsCacheVersion) monthlyCostsCachePromise = null;
+        });
+    }
+    return monthlyCostsCachePromise;
+  }
+
+  async function warmMonthlyCostsCache() {
+    invalidateMonthlyCostsCache();
+    try {
+      await getCachedMonthlyCosts();
+    } catch (err) {
+      console.warn('[Dashboard] Could not warm monthly cost cache:', err.message);
+    }
+  }
+
+  const server = http.createServer(async (request, response) => {
+    if (request.method === 'GET' && request.url === '/api/public-charges') {
+      try {
+        const charges = await getRecentPublicCharges(influx);
+        response.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end(JSON.stringify({ charges }));
+      } catch (err) {
+        console.error('[Dashboard] Public charge query failed:', err.message);
+        response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: 'Could not load public charges.' }));
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/public-charges') {
+      try {
+        if (!String(request.headers['content-type'] || '').includes('application/json')) {
+          throw Object.assign(new Error('Content-Type must be application/json.'), { statusCode: 415 });
+        }
+        const charge = validatePublicCharge(await readJsonBody(request));
+        const id = randomUUID();
+        await influx.writePoints([{
+          measurement: 'public_ev_charge',
+          tags: {
+            charge_id: id,
+            provider: charge.provider,
+            location: charge.location || 'Not specified',
+          },
+          fields: {
+            energy_kwh: charge.energyKwh,
+            cost_pence: charge.costGbp * 100,
+            notes: charge.notes,
+          },
+          timestamp: charge.chargedAt,
+        }], { precision: 's' });
+        invalidateMonthlyCostsCache();
+
+        response.writeHead(201, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end(JSON.stringify({
+          charge: {
+            id,
+            chargedAt: charge.chargedAt.toISOString(),
+            provider: charge.provider,
+            location: charge.location || 'Not specified',
+            energyKwh: charge.energyKwh,
+            costGbp: charge.costGbp,
+            notes: charge.notes,
+          },
+        }));
+      } catch (err) {
+        const statusCode = err.statusCode || 500;
+        if (statusCode >= 500) console.error('[Dashboard] Public charge write failed:', err.message);
+        response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: statusCode >= 500 ? 'Could not save public charge.' : err.message }));
+      }
+      return;
+    }
+
+    if (request.method === 'GET' && request.url === '/api/ev-home-low-rate') {
+      try {
+        const totals = await getRecentManualEvTotals(influx);
+        response.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end(JSON.stringify({ totals }));
+      } catch (err) {
+        console.error('[Dashboard] Manual EV total query failed:', err.message);
+        response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: 'Could not load manual EV totals.' }));
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && request.url === '/api/ev-home-low-rate') {
+      try {
+        if (!String(request.headers['content-type'] || '').includes('application/json')) {
+          throw Object.assign(new Error('Content-Type must be application/json.'), { statusCode: 415 });
+        }
+        const total = validateManualEvTotal(await readJsonBody(request));
+        const accountNumber = config.octopusAccountNumber || 'manual';
+        const point = {
+          tags: { account_number: accountNumber },
+          fields: {
+            charge_kwh: total.energyKwh,
+            charge_cost_pence: total.costGbp * 100,
+          },
+          timestamp: total.timestamp,
+        };
+
+        await influx.writePoints([{
+          measurement: 'ev_manual_daily',
+          ...point,
+          fields: { ...point.fields, notes: total.notes },
+        }], { precision: 's' });
+        await influx.writePoints([{
+          measurement: 'ev_charge_daily',
+          ...point,
+          fields: { ...point.fields, cost_complete: true },
+        }], { precision: 's' });
+        invalidateMonthlyCostsCache();
+
+        response.writeHead(201, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({
+          total: {
+            date: total.date,
+            energyKwh: total.energyKwh,
+            costGbp: total.costGbp,
+            notes: total.notes,
+          },
+        }));
+      } catch (err) {
+        const statusCode = err.statusCode || 500;
+        if (statusCode >= 500) console.error('[Dashboard] Manual EV total write failed:', err.message);
+        response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: statusCode >= 500 ? 'Could not save manual EV total.' : err.message }));
+      }
+      return;
+    }
+
+    if (request.method === 'GET' && request.url === '/api/monthly-costs') {
+      try {
+        const monthlyCosts = await getCachedMonthlyCosts();
+        response.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end(JSON.stringify(monthlyCosts));
+      } catch (err) {
+        console.error('[Dashboard] Monthly cost query failed:', err.message);
+        response.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ error: 'Could not load monthly costs.' }));
+      }
+      return;
+    }
+
+    if (request.method === 'GET' && (request.url === '/' || request.url === '/monthly-costs.html')) {
+      try {
+        response.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        response.end(fs.readFileSync(dashboardFile));
+      } catch (err) {
+        console.error('[Dashboard] Could not serve monthly-costs.html:', err.message);
+        response.writeHead(500);
+        response.end('Dashboard unavailable.');
+      }
+      return;
+    }
+
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    response.end('Not found');
+  });
+
+  server.listen(config.dashboardPort, '0.0.0.0', () => {
+    console.log(`Monthly costs dashboard listening on port ${config.dashboardPort}`);
+  });
+  return warmMonthlyCostsCache;
 }
 
 /**
@@ -374,30 +927,126 @@ async function syncGasConsumption(apiKey, influx, from, to) {
   return points.length;
 }
 
-/**
- * Syncs Agile electricity unit rates from Octopus into InfluxDB.
- * Agile prices for the next day are published at ~4 PM daily.
- * Each 30-minute slot gets its own point timestamped at valid_from.
- */
-async function syncAgileRates(apiKey, influx, from, to) {
-  const label = '[Agile Tariff]';
-  console.log(`${label} Fetching ${from.toISOString()} → ${to.toISOString()}`);
+async function getActiveElectricityTariff(apiKey, accountNumber) {
+  if (!accountNumber) return null;
 
-  const rates = await fetchAllPages(apiKey, ELECTRICITY.agileRatesUrl, {
+  const accountResponse = await axios.get(
+    `https://api.octopus.energy/v1/accounts/${accountNumber}/`,
+    { auth: { username: apiKey, password: '' }, timeout: 30000 }
+  );
+  const meter = (accountResponse.data.properties || [])
+    .flatMap((property) => property.electricity_meter_points || [])
+    .find((point) => point.mpan === ELECTRICITY.mpan);
+  const now = Date.now();
+  const agreement = meter?.agreements?.find((item) =>
+    new Date(item.valid_from).getTime() <= now &&
+    (!item.valid_to || new Date(item.valid_to).getTime() > now)
+  );
+
+  if (!agreement) throw new Error('No active electricity tariff found for the configured MPAN.');
+
+  const match = agreement.tariff_code.match(/^E-\dR-(.+)-([A-P])$/);
+  if (!match) throw new Error(`Could not resolve product code for tariff ${agreement.tariff_code}.`);
+
+  const [, productCode, region] = match;
+  const productResponse = await axios.get(
+    `https://api.octopus.energy/v1/products/${productCode}/`,
+    { timeout: 30000 }
+  );
+  const product = productResponse.data;
+  const fourRateTariff = product.four_rate_ev_electricity_tariffs?.[`_${region}`]?.direct_debit_monthly;
+
+  return {
+    tariffCode: agreement.tariff_code,
+    productCode,
+    validFrom: new Date(agreement.valid_from),
+    fourRateTariff: fourRateTariff || null,
+  };
+}
+
+function londonMinuteOfDay(date) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return Number(values.hour) * 60 + Number(values.minute);
+}
+
+function rateForTime(rates, timestamp) {
+  return rates
+    .filter((rate) => new Date(rate.valid_from).getTime() <= timestamp &&
+      (!rate.valid_to || new Date(rate.valid_to).getTime() > timestamp))
+    .sort((left, right) => new Date(right.valid_from) - new Date(left.valid_from))[0];
+}
+
+async function syncFourRateEvTariff(apiKey, influx, tariff, to) {
+  const baseUrl = `https://api.octopus.energy/v1/products/${tariff.productCode}/electricity-tariffs/${tariff.tariffCode}/`;
+  const from = tariff.validFrom;
+  const params = { period_from: from.toISOString(), period_to: to.toISOString() };
+  const [dayRates, nightRates] = await Promise.all([
+    fetchAllPages(apiKey, `${baseUrl}day-unit-rates/`, params),
+    fetchAllPages(apiKey, `${baseUrl}night-unit-rates/`, params),
+  ]);
+  if (dayRates.length === 0 || nightRates.length === 0) {
+    throw new Error(`No day/night rates returned for tariff ${tariff.tariffCode}.`);
+  }
+
+  const halfHourMs = 30 * 60 * 1000;
+  const firstSlot = Math.floor(from.getTime() / halfHourMs) * halfHourMs;
+  const points = [];
+  for (let timestamp = firstSlot; timestamp < to.getTime(); timestamp += halfHourMs) {
+    const date = new Date(timestamp);
+    const minute = londonMinuteOfDay(date);
+    const isNightRate = minute >= 23 * 60 + 30 || minute < 5 * 60 + 30;
+    const rate = rateForTime(isNightRate ? nightRates : dayRates, timestamp);
+    if (!rate) continue;
+
+    points.push({
+      measurement: 'electricity_tariff',
+      tags: { tariff_code: tariff.tariffCode },
+      fields: {
+        unit_rate_pence: Number(rate.value_inc_vat),
+        unit_rate_ex_vat_pence: Number(rate.value_exc_vat),
+      },
+      timestamp: date,
+    });
+  }
+
+  if (points.length === 0) throw new Error(`No half-hourly rates could be built for ${tariff.tariffCode}.`);
+  await influx.writePoints(points, { precision: 's' });
+  console.log(`[Electricity Tariff] Wrote ${points.length} half-hourly IOG day/night rates for ${tariff.tariffCode}.`);
+  return points.length;
+}
+
+/** Syncs the account's active tariff, with the original Agile rates as fallback. */
+async function syncElectricityTariffRates(apiKey, accountNumber, influx, from, to) {
+  const tariff = await getActiveElectricityTariff(apiKey, accountNumber);
+  if (tariff?.fourRateTariff) {
+    console.log(`[Electricity Tariff] Active IOG tariff ${tariff.tariffCode} from ${tariff.validFrom.toISOString()}`);
+    return syncFourRateEvTariff(apiKey, influx, tariff, to);
+  }
+
+  const url = tariff
+    ? `https://api.octopus.energy/v1/products/${tariff.productCode}/electricity-tariffs/${tariff.tariffCode}/standard-unit-rates/`
+    : ELECTRICITY.agileRatesUrl;
+  const tariffTag = tariff?.tariffCode || 'AGILE-24-10-01';
+  console.log(`[Electricity Tariff] Fetching ${tariffTag}: ${from.toISOString()} → ${to.toISOString()}`);
+
+  const rates = await fetchAllPages(apiKey, url, {
     period_from: from.toISOString(),
     period_to: to.toISOString(),
   });
-
   if (rates.length === 0) {
-    console.log(`${label} No new rates returned.`);
+    console.log('[Electricity Tariff] No new rates returned.');
     return 0;
   }
 
   const points = rates.map((rate) => ({
     measurement: 'electricity_tariff',
-    tags: {
-      tariff_code: 'AGILE-24-10-01',
-    },
+    tags: { tariff_code: tariffTag },
     fields: {
       unit_rate_pence: parseFloat(rate.value_inc_vat),
       unit_rate_ex_vat_pence: parseFloat(rate.value_exc_vat),
@@ -406,7 +1055,7 @@ async function syncAgileRates(apiKey, influx, from, to) {
   }));
 
   await influx.writePoints(points, { precision: 's' });
-  console.log(`${label} Written ${points.length} rate slots.`);
+  console.log(`[Electricity Tariff] Written ${points.length} rate slots.`);
   return points.length;
 }
 
@@ -418,45 +1067,83 @@ async function syncAgileRates(apiKey, influx, from, to) {
 async function syncEvChargeDaily(apiKey, accountNumber, influx) {
   const label = '[EV Charge]';
   const now = new Date();
-  const from = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+  const from = new Date(now.getTime() - 8 * 24 * 60 * 60 * 1000);
   const today = londonDateKey(now);
-  const days = [-2, -1, 0].map((offset) => addCalendarDays(today, offset));
+  const days = Array.from({ length: 7 }, (_, index) => addCalendarDays(today, index - 6));
   const totals = new Map(days.map((day) => [day, {
     chargeKwh: 0,
     chargeCostPence: 0,
     costComplete: true,
   }]));
 
-  console.log(`${label} Refreshing dispatches since ${from.toISOString()}`);
+  console.log(`${label} Refreshing EV sessions since ${from.toISOString()}`);
 
-  const [dispatches, rates] = await Promise.all([
-    fetchCompletedDispatches(apiKey, accountNumber),
-    fetchAllPages(apiKey, ELECTRICITY.agileRatesUrl, {
-      period_from: from.toISOString(),
+  const tariff = await getActiveElectricityTariff(apiKey, accountNumber);
+  const evRatesUrl = tariff?.fourRateTariff
+    ? `https://api.octopus.energy/v1/products/${tariff.productCode}/electricity-tariffs/${tariff.tariffCode}/ev-device-off-peak-unit-rates/`
+    : tariff
+      ? `https://api.octopus.energy/v1/products/${tariff.productCode}/electricity-tariffs/${tariff.tariffCode}/standard-unit-rates/`
+      : ELECTRICITY.agileRatesUrl;
+  const ratesFrom = tariff?.validFrom || from;
+  const [sessions, rates, manualRows] = await Promise.all([
+    fetchSmartFlexChargingSessions(apiKey, accountNumber, from, now),
+    fetchAllPages(apiKey, evRatesUrl, {
+      period_from: ratesFrom.toISOString(),
       period_to: now.toISOString(),
     }),
+    queryMeasurement(influx, 'ev_manual_daily', ['charge_kwh', 'charge_cost_pence'], from.toISOString()),
   ]);
+  const manualTotals = new Map(manualRows.map((row) => [londonDateKey(new Date(row.time)), {
+    chargeKwh: Number(row.charge_kwh),
+    chargeCostPence: Number(row.charge_cost_pence),
+  }]));
 
-  for (const dispatch of dispatches) {
-    const start = new Date(dispatch.start);
+  const charges = sessions.length > 0
+    ? sessions.map((session) => ({
+      start: session.start,
+      end: session.end,
+      date: session.end,
+      chargeKwh: session.energyAdded?.unit === 'KILOWATT_HOUR'
+        ? Number(session.energyAdded.value)
+        : NaN,
+    }))
+    : (await fetchCompletedDispatches(apiKey, accountNumber)).map((dispatch) => ({
+      ...dispatch,
+      date: dispatch.start,
+      chargeKwh: Number(dispatch.delta),
+    }));
+
+  for (const charge of charges) {
+    const start = new Date(charge.start);
+    const end = new Date(charge.end);
     const startMs = start.getTime();
-    const chargeKwh = Number(dispatch.delta);
-    if (!Number.isFinite(startMs) || startMs < from.getTime() || startMs > now.getTime() ||
-      dispatch.delta == null ||
+    const endMs = end.getTime();
+    const chargeKwh = charge.chargeKwh;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs < from.getTime() ||
+      endMs > now.getTime() ||
         !Number.isFinite(chargeKwh) || chargeKwh < 0) {
       continue;
     }
 
-    const total = totals.get(londonDateKey(start));
+    const total = totals.get(londonDateKey(new Date(charge.date)));
     if (!total) continue;
 
     total.chargeKwh += chargeKwh;
-    const costPence = calculateDispatchCostPence(dispatch, rates);
+    const costPence = calculateDispatchCostPence({ start, end, delta: chargeKwh }, rates);
     if (costPence === null) {
       total.costComplete = false;
     } else {
       total.chargeCostPence += costPence;
     }
+  }
+
+  for (const day of days) {
+    const manual = manualTotals.get(day);
+    if (!manual || !Number.isFinite(manual.chargeKwh) || !Number.isFinite(manual.chargeCostPence)) continue;
+    const total = totals.get(day);
+    total.chargeKwh = manual.chargeKwh;
+    total.chargeCostPence = manual.chargeCostPence;
+    total.costComplete = true;
   }
 
   const points = days.map((day) => {
@@ -526,7 +1213,7 @@ async function runConsumptionSync(apiKey, influx) {
  * 4 PM, so 16:30 is the earliest reliable fetch window.
  * Fetches through end of tomorrow to always have tomorrow's rates.
  */
-async function runTariffSync(apiKey, influx) {
+async function runTariffSync(apiKey, accountNumber, influx) {
   console.log('\n════════════════════════════════════');
   console.log('  Tariff Rate Sync — ' + new Date().toISOString());
   console.log('════════════════════════════════════');
@@ -540,7 +1227,7 @@ async function runTariffSync(apiKey, influx) {
     endOfTomorrow.setDate(endOfTomorrow.getDate() + 2);
     endOfTomorrow.setHours(0, 0, 0, 0);
 
-    await syncAgileRates(apiKey, influx, from, endOfTomorrow);
+    await syncElectricityTariffRates(apiKey, accountNumber, influx, from, endOfTomorrow);
 
     console.log('✓ Tariff sync complete.\n');
   } catch (err) {
@@ -586,14 +1273,17 @@ async function main() {
     process.exit(1);
   }
 
+  const warmMonthlyCostsCache = startDashboardServer(influx, config);
+
   const { octopusApiKey, octopusAccountNumber } = config;
 
   // ── Initial backfill on startup ──────────────────────────────────────────
   await runConsumptionSync(octopusApiKey, influx);
-  await runTariffSync(octopusApiKey, influx);
+  await runTariffSync(octopusApiKey, octopusAccountNumber, influx);
   if (octopusAccountNumber) {
     await runEvChargeSync(octopusApiKey, octopusAccountNumber, influx);
   }
+  await warmMonthlyCostsCache();
 
   // ── 06:00 daily — consumption sync (data ready ~24h after metering) ───────
   cron.schedule('0 6 * * *', () => runConsumptionSync(octopusApiKey, influx), {
@@ -602,7 +1292,7 @@ async function main() {
   console.log('⏰ Scheduled: consumption sync at 06:00 Europe/London');
 
   // ── 16:30 daily — Agile rate sync (tomorrow's prices published ~16:00) ────
-  cron.schedule('30 16 * * *', () => runTariffSync(octopusApiKey, influx), {
+  cron.schedule('30 16 * * *', () => runTariffSync(octopusApiKey, octopusAccountNumber, influx), {
     timezone: 'Europe/London',
   });
   console.log('⏰ Scheduled: tariff rate sync at 16:30 Europe/London');

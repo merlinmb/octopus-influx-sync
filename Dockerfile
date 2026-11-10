@@ -21,6 +21,7 @@ COPY --from=deps /app/node_modules ./node_modules
 # Copy application source
 COPY index.js ./
 COPY package.json ./
+COPY monthly-costs.html ./
 
 # Run as non-root for security
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup

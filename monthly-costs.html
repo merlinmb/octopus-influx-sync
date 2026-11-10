@@ -1,0 +1,1024 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#183b31">
+  <title>Monthly energy costs</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f3f6f1;
+      --surface: #ffffff;
+      --ink: #1b2c26;
+      --muted: #6b7972;
+      --line: #dce5dd;
+      --forest: #183b31;
+      --electric: #b7d94b;
+      --gas: #e78357;
+      --ev: #4a8791;
+      --warning: #a64e32;
+      --font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+      --font-ui: "Aptos", "Segoe UI", "Trebuchet MS", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 15px/1.5 var(--font-ui);
+    }
+
+    .masthead {
+      color: #f4f6ed;
+      background-color: var(--forest);
+      background-image: repeating-linear-gradient(135deg, transparent 0 34px, rgb(255 255 255 / 3%) 34px 35px);
+    }
+
+    .masthead-inner,
+    main,
+    .footer-inner {
+      width: min(1180px, calc(100% - 48px));
+      margin-inline: auto;
+    }
+
+    .masthead-inner {
+      min-height: 232px;
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 32px;
+      padding-block: 34px 38px;
+    }
+
+    .kicker,
+    .section-kicker {
+      margin: 0 0 9px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .kicker { color: #c1d58a; }
+
+    h1,
+    h2,
+    p { margin-top: 0; }
+
+    h1 {
+      margin-bottom: 5px;
+      font: 500 54px/1.02 var(--font-display);
+    }
+
+    .masthead-note {
+      margin: 0;
+      color: #d2dfd7;
+      font-size: 14px;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding-bottom: 3px;
+    }
+
+    .period-label {
+      color: #d2dfd7;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    button {
+      min-height: 42px;
+      padding: 0 16px;
+      border: 1px solid #79948a;
+      border-radius: 4px;
+      background: transparent;
+      color: #fff;
+      font: 600 13px var(--font-ui);
+      cursor: pointer;
+    }
+
+    button:hover { background: rgb(255 255 255 / 9%); }
+    button:focus-visible { outline: 3px solid var(--electric); outline-offset: 3px; }
+    button:disabled { cursor: wait; opacity: .7; }
+
+    main { padding-block: 30px 54px; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .summary-card {
+      min-height: 145px;
+      padding: 18px 20px 16px;
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--accent, var(--forest));
+      border-radius: 5px;
+      background: var(--surface);
+    }
+
+    .summary-label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 14px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .swatch {
+      width: 9px;
+      height: 9px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+
+    .summary-value {
+      display: block;
+      font: 500 34px/1 var(--font-display);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .summary-detail {
+      margin: 9px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .section {
+      margin-top: 34px;
+      padding-top: 23px;
+      border-top: 1px solid var(--line);
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 19px;
+    }
+
+    .section-kicker { color: #648072; }
+
+    h2 {
+      margin-bottom: 0;
+      font: 500 29px/1.1 var(--font-display);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      white-space: nowrap;
+    }
+
+    .legend .swatch { width: 8px; height: 8px; }
+
+    .chart {
+      display: grid;
+      gap: 7px;
+    }
+
+    .chart-row {
+      display: grid;
+      grid-template-columns: 112px minmax(100px, 1fr) 98px;
+      align-items: center;
+      gap: 16px;
+      min-height: 27px;
+    }
+
+    .chart-month {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .chart-row.current .chart-month { color: var(--ink); font-weight: 700; }
+
+    .bar-track {
+      height: 15px;
+      overflow: hidden;
+      border-radius: 2px;
+      background: #e6ece6;
+    }
+
+    .bar-stack {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      transform-origin: left center;
+    }
+
+    .bar-segment { height: 100%; min-width: 0; }
+    .bar-segment.electricity { background: var(--electric); }
+    .bar-segment.gas { background: var(--gas); }
+    .bar-segment.ev { background: var(--ev); }
+
+    .chart-total {
+      text-align: right;
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .chart-total small {
+      margin-left: 5px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: var(--surface);
+    }
+
+    table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    th,
+    td {
+      padding: 13px 16px;
+      border-bottom: 1px solid #e8eee8;
+      text-align: right;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    th:first-child,
+    td:first-child { text-align: left; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr.current { background: #f6f8f2; }
+
+    .month-cell { font-weight: 650; white-space: nowrap; }
+    .money { display: block; font-size: 14px; font-weight: 650; }
+    .quantity { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
+    .total-cell { font-weight: 750; }
+
+    .quality {
+      max-width: 170px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      text-align: left;
+    }
+
+    .quality.warn { color: var(--warning); }
+
+    .charge-form {
+      padding: 18px 0 22px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .charge-fields {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .charge-field {
+      display: grid;
+      align-content: start;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .charge-field.wide { grid-column: span 2; }
+
+    .charge-field label {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .charge-field input,
+    .charge-field textarea {
+      width: 100%;
+      min-height: 42px;
+      padding: 9px 11px;
+      border: 1px solid #cbd7ce;
+      border-radius: 4px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 14px var(--font-ui);
+    }
+
+    .charge-field textarea { min-height: 42px; resize: vertical; }
+    .charge-field input:focus-visible,
+    .charge-field textarea:focus-visible { outline: 3px solid #bdd574; outline-offset: 1px; }
+
+    .charge-submit-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 15px;
+    }
+
+    .charge-hint,
+    .charge-status {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .charge-status { min-height: 18px; margin-top: 8px; }
+    .charge-status.error { color: var(--warning); }
+
+    .charge-submit {
+      flex: 0 0 auto;
+      border-color: var(--forest);
+      background: var(--forest);
+      color: #fff;
+    }
+
+    .charge-submit:hover { background: #285447; }
+
+    .entry-action {
+      border-color: var(--forest);
+      background: var(--forest);
+      color: #fff;
+      white-space: nowrap;
+    }
+
+    .entry-action:hover { background: #285447; }
+
+    .charge-dialog {
+      width: min(600px, calc(100vw - 32px));
+      max-width: none;
+      max-height: calc(100dvh - 32px);
+      padding: 0;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--surface);
+      color: var(--ink);
+      box-shadow: 0 18px 60px rgb(12 30 22 / 28%);
+    }
+
+    .charge-dialog::backdrop { background: rgb(12 30 22 / 58%); }
+
+    .dialog-panel { padding: 22px 24px 24px; }
+
+    .dialog-heading {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 15px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .dialog-heading h3 {
+      margin: 0;
+      font: 500 24px/1.15 var(--font-display);
+    }
+
+    .dialog-heading .section-kicker { margin-bottom: 6px; }
+
+    .dialog-close {
+      flex: 0 0 auto;
+      min-height: 38px;
+      padding-inline: 12px;
+      border-color: var(--line);
+      color: var(--ink);
+    }
+
+    .dialog-close:hover { background: var(--paper); }
+
+    .charge-dialog .charge-form {
+      padding: 18px 0 0;
+      border: 0;
+    }
+
+    .recent-heading {
+      margin: 22px 0 10px;
+      font: 500 20px/1.2 var(--font-display);
+    }
+
+    .empty-row {
+      padding: 20px 16px;
+      color: var(--muted);
+      text-align: left;
+    }
+
+    .message {
+      padding: 18px 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .message.error { color: var(--warning); }
+
+    footer {
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .footer-inner {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding-block: 16px 24px;
+    }
+
+    @media (max-width: 760px) {
+      .masthead-inner,
+      main,
+      .footer-inner { width: min(100% - 32px, 580px); }
+
+      .masthead-inner {
+        min-height: auto;
+        align-items: start;
+        flex-direction: column;
+        gap: 23px;
+        padding-block: 28px 25px;
+      }
+
+      h1 { font-size: 44px; }
+      .actions { width: 100%; justify-content: space-between; }
+      main { padding-top: 18px; }
+      .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+      .summary-card { min-height: 125px; padding: 15px; }
+      .summary-value { font-size: 30px; }
+      .section-heading { align-items: start; flex-direction: column; gap: 13px; }
+      .chart-row { grid-template-columns: 78px minmax(80px, 1fr) 78px; gap: 9px; }
+      .chart-total small { display: none; }
+      .charge-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+      .manual-ev-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+      .charge-dialog {
+        width: calc(100vw - 24px);
+        max-height: calc(100dvh - 24px);
+      }
+      .dialog-panel { padding: 18px; }
+      .footer-inner { flex-direction: column; gap: 4px; }
+    }
+
+    @media (max-width: 380px) {
+      .summary-value { font-size: 27px; }
+      .summary-label { font-size: 11px; }
+      .chart-row { grid-template-columns: 68px minmax(65px, 1fr) 70px; gap: 7px; }
+      .actions { align-items: flex-start; flex-direction: column; gap: 10px; }
+      .period-label { white-space: normal; }
+      .charge-submit-row { align-items: stretch; flex-direction: column; }
+      .charge-submit { width: 100%; }
+      .manual-ev-submit { width: 100%; }
+      .charge-fields,
+      .manual-ev-fields { grid-template-columns: minmax(0, 1fr); }
+      .charge-field.wide { grid-column: auto; }
+      .entry-action { width: 100%; }
+      .dialog-heading { gap: 10px; }
+      .dialog-heading h3 { font-size: 21px; }
+      .dialog-close { padding-inline: 9px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <div>
+        <p class="kicker">Household energy / ledger</p>
+        <h1>Monthly energy</h1>
+        <p class="masthead-note">Electricity, gas and EV charging costs in one place.</p>
+      </div>
+      <div class="actions">
+        <span class="period-label">Rolling 12 months · UK time</span>
+        <button id="refresh" type="button">Refresh data</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <p id="status" class="message" role="status">Loading monthly costs...</p>
+    <section id="dashboard" hidden>
+      <div id="summary" class="summary-grid" aria-label="Current month totals"></div>
+
+      <section class="section" aria-labelledby="chart-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">The last twelve months</p>
+            <h2 id="chart-title">Cost by month</h2>
+          </div>
+          <div class="legend" aria-label="Cost categories">
+            <span class="legend-item"><span class="swatch" style="--accent: var(--electric)"></span>Electricity</span>
+            <span class="legend-item"><span class="swatch" style="--accent: var(--gas)"></span>Gas</span>
+            <span class="legend-item"><span class="swatch" style="--accent: var(--ev)"></span>EV charge</span>
+          </div>
+        </div>
+        <div id="chart" class="chart" role="img" aria-label="Stacked monthly cost chart"></div>
+      </section>
+
+      <section class="section" aria-labelledby="home-ev-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Octopus app figures</p>
+            <h2 id="home-ev-title">Home EV low-rate charging</h2>
+          </div>
+          <button class="entry-action" type="button" data-dialog-open="home-ev-dialog">Add or correct total</button>
+        </div>
+        <h3 class="recent-heading">Recent app totals</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Energy</th>
+                <th scope="col">Cost</th>
+                <th scope="col">Note</th>
+                <th scope="col">Action</th>
+              </tr>
+            </thead>
+            <tbody id="home-ev-rows"></tbody>
+          </table>
+        </div>
+        <dialog id="home-ev-dialog" class="charge-dialog" aria-labelledby="home-ev-dialog-title">
+          <div class="dialog-panel">
+            <div class="dialog-heading">
+              <div>
+                <p class="section-kicker">Octopus app figures</p>
+                <h3 id="home-ev-dialog-title">Daily home EV total</h3>
+              </div>
+              <button class="dialog-close" type="button" data-dialog-close>Close</button>
+            </div>
+            <form id="home-ev-form" class="charge-form">
+              <div class="charge-fields manual-ev-fields">
+                <div class="charge-field">
+                  <label for="home-ev-date">Date</label>
+                  <input id="home-ev-date" name="date" type="date" required>
+                </div>
+                <div class="charge-field">
+                  <label for="home-ev-energy">App energy (kWh)</label>
+                  <input id="home-ev-energy" name="energyKwh" type="number" min="0.01" max="300" step="0.01" inputmode="decimal" required>
+                </div>
+                <div class="charge-field">
+                  <label for="home-ev-cost">App cost (£)</label>
+                  <input id="home-ev-cost" name="costGbp" type="number" min="0" max="1000" step="0.01" inputmode="decimal" required>
+                </div>
+                <div class="charge-field wide">
+                  <label for="home-ev-notes">Note or source</label>
+                  <input id="home-ev-notes" name="notes" type="text" maxlength="500" placeholder="Optional">
+                </div>
+              </div>
+              <div class="charge-submit-row">
+                <p class="charge-hint">Use the app's daily EV low-rate total. Saving a date replaces that day's automatic total.</p>
+                <button class="charge-submit manual-ev-submit" type="submit">Save daily total</button>
+              </div>
+              <p id="home-ev-status" class="charge-status" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </dialog>
+      </section>
+
+      <section class="section" aria-labelledby="public-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Receipts and charging history</p>
+            <h2 id="public-title">Public charging</h2>
+          </div>
+          <button class="entry-action" type="button" data-dialog-open="public-charge-dialog">Log a public charge</button>
+        </div>
+        <h3 class="recent-heading">Recent public charges</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Provider</th>
+                <th scope="col">Location</th>
+                <th scope="col">Energy</th>
+                <th scope="col">Paid</th>
+                <th scope="col">Note</th>
+              </tr>
+            </thead>
+            <tbody id="public-charge-rows"></tbody>
+          </table>
+        </div>
+        <dialog id="public-charge-dialog" class="charge-dialog" aria-labelledby="public-charge-dialog-title">
+          <div class="dialog-panel">
+            <div class="dialog-heading">
+              <div>
+                <p class="section-kicker">Receipts and charging history</p>
+                <h3 id="public-charge-dialog-title">Log a public charge</h3>
+              </div>
+              <button class="dialog-close" type="button" data-dialog-close>Close</button>
+            </div>
+            <form id="charge-form" class="charge-form">
+              <div class="charge-fields">
+                <div class="charge-field">
+                  <label for="charge-time">Date and time</label>
+                  <input id="charge-time" name="chargedAt" type="datetime-local" required>
+                </div>
+                <div class="charge-field">
+                  <label for="charge-energy">Energy (kWh)</label>
+                  <input id="charge-energy" name="energyKwh" type="number" min="0.01" max="300" step="0.01" inputmode="decimal" required>
+                </div>
+                <div class="charge-field">
+                  <label for="charge-cost">Total paid (£)</label>
+                  <input id="charge-cost" name="costGbp" type="number" min="0" max="1000" step="0.01" inputmode="decimal" required>
+                </div>
+                <div class="charge-field">
+                  <label for="charge-provider">Network / provider</label>
+                  <input id="charge-provider" name="provider" type="text" maxlength="80" placeholder="e.g. Gridserve" required>
+                </div>
+                <div class="charge-field wide">
+                  <label for="charge-location">Location</label>
+                  <input id="charge-location" name="location" type="text" maxlength="120" placeholder="Optional">
+                </div>
+                <div class="charge-field wide">
+                  <label for="charge-notes">Note or receipt reference</label>
+                  <textarea id="charge-notes" name="notes" maxlength="500" rows="1" placeholder="Optional"></textarea>
+                </div>
+              </div>
+              <div class="charge-submit-row">
+                <p class="charge-hint">Public receipts use the amount paid. Whole-home meter readings are not classified as EV charging.</p>
+                <button class="charge-submit" type="submit">Save charge</button>
+              </div>
+              <p id="charge-status" class="charge-status" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </dialog>
+      </section>
+
+      <section class="section" aria-labelledby="table-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">Amounts and usage</p>
+            <h2 id="table-title">Monthly detail</h2>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Month</th>
+                <th scope="col">Electricity</th>
+                <th scope="col">Gas</th>
+                <th scope="col">EV charge</th>
+                <th scope="col">Total</th>
+                <th scope="col">Data notes</th>
+              </tr>
+            </thead>
+            <tbody id="monthly-rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <span id="gas-rate"></span>
+      <span id="updated-at"></span>
+    </div>
+  </footer>
+
+  <script>
+    const currency = new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP' });
+    const quantity = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 1 });
+
+    function currentLondonMonth() {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/London',
+        year: 'numeric',
+        month: '2-digit',
+      }).formatToParts(new Date());
+      const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+      return `${values.year}-${values.month}`;
+    }
+
+    function monthLabel(month) {
+      return new Intl.DateTimeFormat('en-GB', {
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+      }).format(new Date(`${month}-01T00:00:00Z`));
+    }
+
+    function element(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    function renderSummary(month) {
+      const categories = [
+        { label: 'Electricity', cost: month.electricityCostGbp, detail: `${quantity.format(month.electricityKwh)} kWh`, color: 'var(--electric)' },
+        { label: 'Gas', cost: month.gasCostGbp, detail: `${quantity.format(month.gasM3)} m³`, color: 'var(--gas)' },
+        { label: 'EV charge', cost: month.evCostGbp, detail: `${quantity.format(month.evKwh)} kWh · ${month.publicChargeCount} public`, color: 'var(--ev)' },
+        { label: 'Total', cost: month.totalCostGbp, detail: monthLabel(month.month), color: 'var(--forest)' },
+      ];
+      const summary = document.getElementById('summary');
+      summary.replaceChildren();
+      for (const category of categories) {
+        const card = element('article', 'summary-card');
+        card.style.setProperty('--accent', category.color);
+        const label = element('div', 'summary-label');
+        label.append(element('span', 'swatch'), element('span', '', category.label));
+        card.append(label, element('strong', 'summary-value', currency.format(category.cost)), element('p', 'summary-detail', category.detail));
+        summary.append(card);
+      }
+    }
+
+    function renderChart(months) {
+      const chart = document.getElementById('chart');
+      chart.replaceChildren();
+      const maxTotal = Math.max(1, ...months.map(month => month.totalCostGbp));
+      const current = currentLondonMonth();
+      const labels = { electricity: 'Electricity', gas: 'Gas', ev: 'EV charging' };
+
+      for (const month of months) {
+        const row = element('div', `chart-row${month.month === current ? ' current' : ''}`);
+        const name = element('span', 'chart-month', monthLabel(month.month));
+        const track = element('div', 'bar-track');
+        track.setAttribute('aria-hidden', 'true');
+        const stack = element('div', 'bar-stack');
+        stack.style.width = `${Math.max(0, month.totalCostGbp / maxTotal * 100)}%`;
+        for (const [kind, value] of [
+          ['electricity', month.electricityCostGbp],
+          ['gas', month.gasCostGbp],
+          ['ev', month.evCostGbp],
+        ]) {
+          const segment = element('span', `bar-segment ${kind}`);
+          segment.style.width = `${month.totalCostGbp > 0 ? Math.max(0, value / month.totalCostGbp * 100) : 0}%`;
+          segment.title = `${labels[kind]}: ${currency.format(value)}`;
+          stack.append(segment);
+        }
+        track.append(stack);
+        const total = element('span', 'chart-total', currency.format(month.totalCostGbp));
+        if (month.month === current) total.append(element('small', '', 'now'));
+        row.append(name, track, total);
+        chart.append(row);
+      }
+    }
+
+    function renderTable(months) {
+      const body = document.getElementById('monthly-rows');
+      body.replaceChildren();
+      const current = currentLondonMonth();
+      const ordered = [...months].reverse();
+
+      for (const month of ordered) {
+        const row = element('tr', month.month === current ? 'current' : '');
+        row.append(element('th', 'month-cell', monthLabel(month.month)));
+        row.lastElementChild.scope = 'row';
+
+        const cells = [
+          { cost: month.electricityCostGbp, usage: `${quantity.format(month.electricityKwh)} kWh` },
+          { cost: month.gasCostGbp, usage: `${quantity.format(month.gasM3)} m³` },
+          { cost: month.evCostGbp, usage: `${quantity.format(month.evKwh)} kWh` },
+        ];
+        for (const cell of cells) {
+          const td = element('td');
+          td.append(element('span', 'money', currency.format(cell.cost)), element('span', 'quantity', cell.usage));
+          row.append(td);
+        }
+
+        row.append(element('td', 'total-cell', currency.format(month.totalCostGbp)));
+        const notes = [];
+        if (month.electricityUnpricedIntervals > 0) notes.push(`${month.electricityUnpricedIntervals} electricity slots unpriced`);
+        if (month.evIncompleteDays > 0) notes.push(`${month.evIncompleteDays} EV days with incomplete cost`);
+        if (month.publicChargeCount > 0) notes.push(`${month.publicChargeCount} public charge${month.publicChargeCount === 1 ? '' : 's'} logged`);
+        row.append(element('td', `quality${notes.length ? ' warn' : ''}`, notes.join('; ') || 'Complete'));
+        body.append(row);
+      }
+    }
+
+    function renderPublicCharges(charges) {
+      const body = document.getElementById('public-charge-rows');
+      body.replaceChildren();
+      if (charges.length === 0) {
+        const row = element('tr');
+        const empty = element('td', 'empty-row', 'No public charges logged in the last 90 days.');
+        empty.colSpan = 6;
+        row.append(empty);
+        body.append(row);
+        return;
+      }
+
+      for (const charge of charges) {
+        const row = element('tr');
+        const chargedAt = new Intl.DateTimeFormat('en-GB', {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+          timeZone: 'Europe/London',
+        }).format(new Date(charge.chargedAt));
+        row.append(
+          element('td', 'month-cell', chargedAt),
+          element('td', '', charge.provider),
+          element('td', '', charge.location),
+          element('td', '', `${quantity.format(charge.energyKwh)} kWh`),
+          element('td', 'total-cell', currency.format(charge.costGbp)),
+          element('td', '', charge.notes || ' '),
+        );
+        body.append(row);
+      }
+    }
+
+    function renderManualEvTotals(totals) {
+      const body = document.getElementById('home-ev-rows');
+      body.replaceChildren();
+      if (totals.length === 0) {
+        const row = element('tr');
+        const empty = element('td', 'empty-row', 'No app totals entered in the last 90 days.');
+        empty.colSpan = 5;
+        row.append(empty);
+        body.append(row);
+        return;
+      }
+
+      for (const total of totals) {
+        const row = element('tr');
+        const date = new Intl.DateTimeFormat('en-GB', {
+          dateStyle: 'medium',
+          timeZone: 'Europe/London',
+        }).format(new Date(`${total.date}T12:00:00Z`));
+        row.append(
+          element('td', 'month-cell', date),
+          element('td', '', `${quantity.format(total.energyKwh)} kWh`),
+          element('td', 'total-cell', currency.format(total.costGbp)),
+          element('td', '', total.notes || ' '),
+        );
+        const action = element('td');
+        const edit = element('button', '', 'Edit');
+        edit.type = 'button';
+        edit.dataset.date = total.date;
+        edit.dataset.energyKwh = String(total.energyKwh);
+        edit.dataset.costGbp = String(total.costGbp);
+        edit.dataset.notes = total.notes;
+        edit.setAttribute('aria-label', `Edit app total for ${date}`);
+        action.append(edit);
+        row.append(action);
+        body.append(row);
+      }
+    }
+
+    async function loadData() {
+      const status = document.getElementById('status');
+      const button = document.getElementById('refresh');
+      button.disabled = true;
+      button.textContent = 'Refreshing...';
+      status.className = 'message';
+      status.textContent = 'Loading monthly costs...';
+
+      try {
+        const [monthlyResponse, chargesResponse, manualEvResponse] = await Promise.all([
+          fetch('/api/monthly-costs', { cache: 'no-store' }),
+          fetch('/api/public-charges', { cache: 'no-store' }),
+          fetch('/api/ev-home-low-rate', { cache: 'no-store' }),
+        ]);
+        if (!monthlyResponse.ok || !chargesResponse.ok || !manualEvResponse.ok) throw new Error('Dashboard data could not be loaded.');
+        const [data, chargeData, manualEvData] = await Promise.all([
+          monthlyResponse.json(),
+          chargesResponse.json(),
+          manualEvResponse.json(),
+        ]);
+        if (!Array.isArray(data.months) || data.months.length === 0) throw new Error('No monthly data is available yet.');
+
+        const current = data.months.find(month => month.month === currentLondonMonth()) || data.months[data.months.length - 1];
+        renderSummary(current);
+        renderChart(data.months);
+        renderTable(data.months);
+        renderPublicCharges(chargeData.charges || []);
+        renderManualEvTotals(manualEvData.totals || []);
+        document.getElementById('gas-rate').textContent = `Gas estimate at ${quantity.format(data.gasUnitRatePence)}p/kWh`;
+        document.getElementById('updated-at').textContent = `Updated ${new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London' }).format(new Date(data.generatedAt))}`;
+        document.getElementById('dashboard').hidden = false;
+        status.hidden = true;
+      } catch (error) {
+        status.className = 'message error';
+        status.hidden = false;
+        status.textContent = error.message || 'Could not load monthly costs.';
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Refresh data';
+      }
+    }
+
+    document.getElementById('refresh').addEventListener('click', loadData);
+    document.querySelectorAll('[data-dialog-open]').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.getElementById(button.dataset.dialogOpen).showModal();
+      });
+    });
+    document.querySelectorAll('[data-dialog-close]').forEach((button) => {
+      button.addEventListener('click', () => button.closest('dialog').close());
+    });
+    document.querySelectorAll('.charge-dialog').forEach((dialog) => {
+      dialog.addEventListener('click', (event) => {
+        if (event.target === dialog) dialog.close();
+      });
+    });
+    document.getElementById('home-ev-rows').addEventListener('click', (event) => {
+      const edit = event.target.closest('button[data-date]');
+      if (!edit) return;
+      document.getElementById('home-ev-date').value = edit.dataset.date;
+      document.getElementById('home-ev-energy').value = edit.dataset.energyKwh;
+      document.getElementById('home-ev-cost').value = edit.dataset.costGbp;
+      document.getElementById('home-ev-notes').value = edit.dataset.notes;
+      document.getElementById('home-ev-status').textContent = `Editing ${edit.dataset.date}; saving will replace that date.`;
+      document.getElementById('home-ev-dialog').showModal();
+    });
+    document.getElementById('home-ev-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = form.querySelector('button[type="submit"]');
+      const status = document.getElementById('home-ev-status');
+      const formData = new FormData(form);
+      submit.disabled = true;
+      status.className = 'charge-status';
+      status.textContent = 'Saving app total...';
+      try {
+        const response = await fetch('/api/ev-home-low-rate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: formData.get('date'),
+            energyKwh: Number(formData.get('energyKwh')),
+            costGbp: Number(formData.get('costGbp')),
+            notes: formData.get('notes'),
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'App total could not be saved.');
+        await loadData();
+        status.className = 'charge-status';
+        status.textContent = 'App total saved.';
+      } catch (error) {
+        status.className = 'charge-status error';
+        status.textContent = error.message || 'App total could not be saved.';
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    const chargeTime = document.getElementById('charge-time');
+    chargeTime.value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    document.getElementById('charge-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = form.querySelector('button[type="submit"]');
+      const status = document.getElementById('charge-status');
+      const formData = new FormData(form);
+      submit.disabled = true;
+      status.className = 'charge-status';
+      status.textContent = 'Saving charge...';
+      try {
+        const response = await fetch('/api/public-charges', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chargedAt: new Date(formData.get('chargedAt')).toISOString(),
+            energyKwh: Number(formData.get('energyKwh')),
+            costGbp: Number(formData.get('costGbp')),
+            provider: formData.get('provider'),
+            location: formData.get('location'),
+            notes: formData.get('notes'),
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Charge could not be saved.');
+        form.reset();
+        chargeTime.value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        await loadData();
+        status.className = 'charge-status';
+        status.textContent = 'Public charge saved.';
+      } catch (error) {
+        status.className = 'charge-status error';
+        status.textContent = error.message || 'Charge could not be saved.';
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    loadData();
+  </script>
+</body>
+</html>

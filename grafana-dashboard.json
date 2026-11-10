@@ -300,6 +300,84 @@
           }
         ]
       }
+    },
+    {
+      "id": 7,
+      "title": "Last Month — EV Cost",
+      "description": "Includes home EV charging and public charging receipts.",
+      "type": "stat",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 28 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "refId": "A",
+          "query": "import \"date\"\nimport \"timezone\"\noption location = timezone.location(name: \"Europe/London\")\nthisMonth = date.truncate(t: now(), unit: 1mo)\nperiodStart = date.sub(d: 1mo, from: thisMonth)\nperiodStop = thisMonth\nhomeEv = from(bucket: \"idb_measurements/autogen\")\n  |> range(start: periodStart, stop: periodStop)\n  |> filter(fn: (r) => r._measurement == \"ev_charge_daily\" and (r._field == \"charge_cost_pence\" or r._field == \"cost_complete\"))\n  |> pivot(rowKey: [\"_time\", \"account_number\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({_time: r._time, _value: if r.cost_complete then r.charge_cost_pence / 100.0 else 0.0}))\n  |> keep(columns: [\"_time\", \"_value\"])\npublicEv = from(bucket: \"idb_measurements/autogen\")\n  |> range(start: periodStart, stop: periodStop)\n  |> filter(fn: (r) => r._measurement == \"public_ev_charge\" and r._field == \"cost_pence\")\n  |> map(fn: (r) => ({_time: r._time, _value: r._value / 100.0}))\n  |> keep(columns: [\"_time\", \"_value\"])\nunion(tables: [homeEv, publicEv])\n  |> group(columns: [])\n  |> sum(column: \"_value\")"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyGBP",
+          "decimals": 2,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 30 },
+              { "color": "red", "value": 60 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "title": "This Month So Far — EV Cost",
+      "description": "Cumulative home EV charging and public charging receipts for this month.",
+      "type": "stat",
+      "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 28 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "${DS_INFLUXDB}" },
+          "refId": "A",
+          "query": "import \"date\"\nimport \"timezone\"\noption location = timezone.location(name: \"Europe/London\")\nthisMonth = date.truncate(t: now(), unit: 1mo)\nhomeEvDaily = from(bucket: \"idb_measurements/autogen\")\n  |> range(start: thisMonth, stop: now())\n  |> filter(fn: (r) => r._measurement == \"ev_charge_daily\" and (r._field == \"charge_cost_pence\" or r._field == \"cost_complete\"))\n  |> pivot(rowKey: [\"_time\", \"account_number\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({_time: r._time, _value: if r.cost_complete then r.charge_cost_pence / 100.0 else 0.0}))\n  |> keep(columns: [\"_time\", \"_value\"])\npublicEvDaily = from(bucket: \"idb_measurements/autogen\")\n  |> range(start: thisMonth, stop: now())\n  |> filter(fn: (r) => r._measurement == \"public_ev_charge\" and r._field == \"cost_pence\")\n  |> map(fn: (r) => ({_time: date.truncate(t: r._time, unit: 1d), _value: r._value / 100.0}))\n  |> keep(columns: [\"_time\", \"_value\"])\nunion(tables: [homeEvDaily, publicEvDaily])\n  |> group(columns: [])\n  |> aggregateWindow(every: 1d, fn: sum, createEmpty: false, timeSrc: \"_stop\")\n  |> cumulativeSum()\n  |> keep(columns: [\"_time\", \"_value\"])"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyGBP",
+          "decimals": 2,
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 30 },
+              { "color": "red", "value": 60 }
+            ]
+          }
+        },
+        "overrides": []
+      }
     }
 
   ],
