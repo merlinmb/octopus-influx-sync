@@ -151,21 +151,41 @@ async function fetchAllPages(apiKey, url, params = {}) {
  * current account's available dispatches and refresh daily totals from them.
  */
 async function fetchCompletedDispatches(apiKey, accountNumber) {
+  const tokenResponse = await axios.post(
+    'https://api.octopus.energy/v1/graphql/',
+    {
+      query: `mutation ObtainKrakenToken($input: ObtainJSONWebTokenInput!) {
+        obtainKrakenToken(input: $input) {
+          token
+        }
+      }`,
+      variables: { input: { APIKey: apiKey } },
+    },
+    { timeout: 30000 }
+  );
+
+  const tokenErrors = tokenResponse.data.errors || [];
+  if (tokenErrors.length > 0) {
+    throw new Error(tokenErrors.map((error) => error.message).join('; '));
+  }
+
+  const token = tokenResponse.data.data?.obtainKrakenToken?.token;
+  if (!token) {
+    throw new Error('Octopus GraphQL did not return an authentication token.');
+  }
+
   const query = `query CompletedDispatches($accountNumber: String!) {
-    planner {
-      completedDispatches(accountNumber: $accountNumber) {
-        start
-        end
-        chargeInKwh
-        source
-      }
+    completedDispatches(accountNumber: $accountNumber) {
+      start
+      end
+      delta
     }
   }`;
   const response = await axios.post(
     'https://api.octopus.energy/v1/graphql/',
     { query, variables: { accountNumber } },
     {
-      auth: { username: apiKey, password: '' },
+      headers: { Authorization: token },
       timeout: 30000,
     }
   );
@@ -174,7 +194,7 @@ async function fetchCompletedDispatches(apiKey, accountNumber) {
     throw new Error(response.data.errors.map((error) => error.message).join('; '));
   }
 
-  const dispatches = response.data.data?.planner?.completedDispatches;
+  const dispatches = response.data.data?.completedDispatches;
   if (!Array.isArray(dispatches)) {
     throw new Error('Octopus GraphQL response did not contain completedDispatches.');
   }
@@ -420,9 +440,9 @@ async function syncEvChargeDaily(apiKey, accountNumber, influx) {
   for (const dispatch of dispatches) {
     const start = new Date(dispatch.start);
     const startMs = start.getTime();
-    const chargeKwh = Number(dispatch.chargeInKwh);
+    const chargeKwh = Number(dispatch.delta);
     if (!Number.isFinite(startMs) || startMs < from.getTime() || startMs > now.getTime() ||
-      dispatch.chargeInKwh == null ||
+      dispatch.delta == null ||
         !Number.isFinite(chargeKwh) || chargeKwh < 0) {
       continue;
     }
