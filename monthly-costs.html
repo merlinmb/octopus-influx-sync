@@ -109,6 +109,25 @@
 
     main { padding-block: 30px 54px; }
 
+    .summary-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 14px;
+    }
+
+    .summary-heading h2 {
+      font-size: 24px;
+    }
+
+    .summary-note {
+      margin: 0 0 3px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: right;
+    }
+
     .summary-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -116,6 +135,8 @@
     }
 
     .summary-card {
+      display: flex;
+      flex-direction: column;
       min-height: 145px;
       padding: 18px 20px 16px;
       border: 1px solid var(--line);
@@ -150,8 +171,11 @@
     .summary-detail {
       margin: 9px 0 0;
       color: var(--muted);
-      font-size: 12px;
+      font-size: clamp(10px, 2.9vw, 12px);
+      font-variant-numeric: tabular-nums;
     }
+
+    .summary-card .summary-detail { margin-top: auto; padding-top: 9px; }
 
     .section {
       margin-top: 34px;
@@ -242,6 +266,144 @@
       font-size: 10px;
     }
 
+    button.chart-row {
+      width: 100%;
+      min-height: 27px;
+      padding: 0 8px;
+      border: 0;
+      border-radius: 3px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    button.chart-row:hover { background: #edf1e8; }
+    button.chart-row:focus-visible { outline: 3px solid #bdd574; outline-offset: 1px; }
+
+    button.chart-row[aria-pressed="true"] { background: #e7eddf; }
+    button.chart-row[aria-pressed="true"] .chart-month { color: var(--ink); font-weight: 700; }
+    button.chart-row[aria-pressed="true"] .chart-total { font-weight: 700; }
+
+    .column-chart {
+      display: grid;
+      grid-template-columns: 40px minmax(0, 1fr);
+      column-gap: 10px;
+      row-gap: 8px;
+      margin-top: 4px;
+    }
+
+    .column-axis {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 190px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .column-plot {
+      position: relative;
+      height: 190px;
+    }
+
+    .column-grid {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+
+    .column-grid span { border-top: 1px solid #e4ebe2; }
+    .column-grid span:last-child { border-top-color: #ccd8c8; }
+
+    .column-bars {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 7px;
+      align-items: end;
+    }
+
+    .column {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: center;
+      height: 100%;
+      border-radius: 3px;
+    }
+
+    .column:hover { background: #edf2e8; }
+
+    .column-bar {
+      width: 100%;
+      max-width: 46px;
+      border-radius: 3px 3px 0 0;
+      background: var(--ev);
+    }
+
+    .column-value {
+      position: absolute;
+      left: -8px;
+      right: -8px;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1;
+      text-align: center;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .column-marker {
+      width: 5px;
+      height: 5px;
+      margin-bottom: 1px;
+      border: 1px solid #c2cec2;
+      border-radius: 50%;
+      background: var(--surface);
+    }
+
+    .column-label.muted { opacity: .55; }
+
+    .column-labels {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 7px;
+    }
+
+    .column-label {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+      text-align: center;
+    }
+
+    .column-label.current { color: var(--ink); font-weight: 700; }
+
+    .efficiency-summary {
+      margin: 15px 0 0;
+      color: var(--ink);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .efficiency-summary strong { font-weight: 700; }
+
+    .chart-note {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
     .table-wrap {
       overflow-x: auto;
       border: 1px solid var(--line);
@@ -282,6 +444,30 @@
     .money { display: block; font-size: 14px; font-weight: 650; }
     .quantity { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
     .total-cell { font-weight: 750; }
+
+    .text-cell { text-align: left; }
+    .nowrap { white-space: nowrap; }
+
+    tbody th.month-cell {
+      font-size: 13px;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--ink);
+    }
+
+    .row-action {
+      min-height: 32px;
+      padding: 0 12px;
+      border: 1px solid #cbd7ce;
+      border-radius: 3px;
+      background: var(--surface);
+      color: var(--ink);
+      font: 600 12px var(--font-ui);
+    }
+
+    .row-action:hover { background: var(--paper); }
+
+    .empty-cell { color: var(--muted); }
 
     .quality {
       max-width: 170px;
@@ -451,6 +637,10 @@
       padding-block: 16px 24px;
     }
 
+    @media (max-width: 880px) {
+      .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    }
+
     @media (max-width: 760px) {
       .masthead-inner,
       main,
@@ -470,9 +660,18 @@
       .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
       .summary-card { min-height: 125px; padding: 15px; }
       .summary-value { font-size: 30px; }
+      .summary-heading { align-items: start; flex-direction: column; gap: 2px; }
+      .summary-note { margin: 0; text-align: left; }
       .section-heading { align-items: start; flex-direction: column; gap: 13px; }
       .chart-row { grid-template-columns: 78px minmax(80px, 1fr) 78px; gap: 9px; }
       .chart-total small { display: none; }
+      .column-chart { grid-template-columns: 32px minmax(0, 1fr); column-gap: 7px; }
+      .column-axis,
+      .column-plot { height: 155px; }
+      .column-bars,
+      .column-labels { gap: 4px; }
+      .column-label { font-size: 10px; }
+      .column-value { font-size: 9px; }
       .charge-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
       .manual-ev-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
       .charge-dialog {
@@ -487,6 +686,11 @@
       .summary-value { font-size: 27px; }
       .summary-label { font-size: 11px; }
       .chart-row { grid-template-columns: 68px minmax(65px, 1fr) 70px; gap: 7px; }
+      .column-bars,
+      .column-labels { gap: 3px; }
+      .column-chart { grid-template-columns: 28px minmax(0, 1fr); column-gap: 6px; }
+      .column-label { font-size: 9px; }
+      .column-value { font-size: 8px; }
       .actions { align-items: flex-start; flex-direction: column; gap: 10px; }
       .period-label { white-space: normal; }
       .charge-submit-row { align-items: stretch; flex-direction: column; }
@@ -520,12 +724,21 @@
   <main>
     <p id="status" class="message" role="status">Loading monthly costs...</p>
     <section id="dashboard" hidden>
-      <div id="summary" class="summary-grid" aria-label="Current month totals"></div>
+      <div id="summary-region" aria-live="polite" aria-label="Selected month totals">
+        <div class="summary-heading">
+          <div>
+            <p class="section-kicker">Selected month</p>
+            <h2 id="summary-month">—</h2>
+          </div>
+          <p id="summary-note" class="summary-note"></p>
+        </div>
+        <div id="summary" class="summary-grid"></div>
+      </div>
 
       <section class="section" aria-labelledby="chart-title">
         <div class="section-heading">
           <div>
-            <p class="section-kicker">The last twelve months</p>
+            <p class="section-kicker">The last twelve months · click a month</p>
             <h2 id="chart-title">Cost by month</h2>
           </div>
           <div class="legend" aria-label="Cost categories">
@@ -534,7 +747,22 @@
             <span class="legend-item"><span class="swatch" style="--accent: var(--ev)"></span>EV charge</span>
           </div>
         </div>
-        <div id="chart" class="chart" role="img" aria-label="Stacked monthly cost chart"></div>
+        <div id="chart" class="chart" role="group" aria-label="Stacked monthly cost chart. Choose a month to update the summary."></div>
+      </section>
+
+      <section class="section" aria-labelledby="efficiency-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker" id="efficiency-kicker">Miles per kWh</p>
+            <h2 id="efficiency-title">EV efficiency</h2>
+          </div>
+          <div class="legend" aria-label="Efficiency units">
+            <span class="legend-item"><span class="swatch" style="--accent: var(--ev)"></span>mi/kWh</span>
+          </div>
+        </div>
+        <div id="efficiency-chart" class="column-chart" role="group" aria-label="Monthly EV efficiency chart"></div>
+        <p id="efficiency-summary" class="efficiency-summary"></p>
+        <p class="chart-note">Miles driven come from the Volvo odometer. Energy is the EV charge total above, combining home sessions and public receipts. Months without odometer history stay blank.</p>
       </section>
 
       <section class="section" aria-labelledby="home-ev-title">
@@ -553,7 +781,7 @@
                 <th scope="col">Date</th>
                 <th scope="col">Energy</th>
                 <th scope="col">Cost</th>
-                <th scope="col">Note</th>
+                <th scope="col" class="text-cell">Note</th>
                 <th scope="col">Action</th>
               </tr>
             </thead>
@@ -612,11 +840,11 @@
             <thead>
               <tr>
                 <th scope="col">Date</th>
-                <th scope="col">Provider</th>
-                <th scope="col">Location</th>
+                <th scope="col" class="text-cell">Provider</th>
+                <th scope="col" class="text-cell">Location</th>
                 <th scope="col">Energy</th>
                 <th scope="col">Paid</th>
-                <th scope="col">Note</th>
+                <th scope="col" class="text-cell">Note</th>
               </tr>
             </thead>
             <tbody id="public-charge-rows"></tbody>
@@ -684,7 +912,7 @@
                 <th scope="col">Gas</th>
                 <th scope="col">EV charge</th>
                 <th scope="col">Total</th>
-                <th scope="col">Data notes</th>
+                <th scope="col" class="text-cell">Data notes</th>
               </tr>
             </thead>
             <tbody id="monthly-rows"></tbody>
@@ -723,6 +951,20 @@
       }).format(new Date(`${month}-01T00:00:00Z`));
     }
 
+    function shortMonthLabel(month) {
+      return new Intl.DateTimeFormat('en-GB', {
+        month: 'short',
+        timeZone: 'UTC',
+      }).format(new Date(`${month}-01T00:00:00Z`));
+    }
+
+    function monthYear(month) {
+      return new Intl.DateTimeFormat('en-GB', {
+        year: 'numeric',
+        timeZone: 'UTC',
+      }).format(new Date(`${month}-01T00:00:00Z`));
+    }
+
     function element(tag, className, text) {
       const node = document.createElement(tag);
       if (className) node.className = className;
@@ -730,22 +972,95 @@
       return node;
     }
 
+    let monthRows = [];
+    let selectedMonth = null;
+    let gasRatePence = null;
+
+    // Deeper tones than the chart fills so a 3px card border carries the same
+    // visual weight across all four cards.
+    const CARD_ACCENTS = {
+      electricity: '#8fae2e',
+      gas: '#d9764a',
+      ev: '#3f7a84',
+      total: '#24463c',
+    };
+
+    function daysInMonth(month) {
+      if (month === currentLondonMonth()) {
+        return Number(new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Europe/London',
+          day: 'numeric',
+        }).format(new Date()));
+      }
+      const [year, monthIndex] = month.split('-').map(Number);
+      return new Date(Date.UTC(year, monthIndex, 0)).getUTCDate();
+    }
+
     function renderSummary(month) {
+      const days = Math.max(1, daysInMonth(month.month));
+      const isCurrent = month.month === currentLondonMonth();
+      document.getElementById('summary-month').textContent = monthLabel(month.month);
+      document.getElementById('summary-note').textContent = isCurrent
+        ? `Month to date · ${days} day${days === 1 ? '' : 's'}`
+        : `Full month · ${days} days`;
+
+      const electricityRate = month.electricityKwh > 0
+        ? `${(month.electricityCostGbp * 100 / month.electricityKwh).toFixed(1)}p/kWh`
+        : null;
+      const efficiency = Number.isFinite(month.evEfficiencyMiPerKwh)
+        ? `${month.evEfficiencyMiPerKwh.toFixed(2)} mi/kWh`
+        : null;
+
       const categories = [
-        { label: 'Electricity', cost: month.electricityCostGbp, detail: `${quantity.format(month.electricityKwh)} kWh`, color: 'var(--electric)' },
-        { label: 'Gas', cost: month.gasCostGbp, detail: `${quantity.format(month.gasM3)} m³`, color: 'var(--gas)' },
-        { label: 'EV charge', cost: month.evCostGbp, detail: `${quantity.format(month.evKwh)} kWh · ${month.publicChargeCount} public`, color: 'var(--ev)' },
-        { label: 'Total', cost: month.totalCostGbp, detail: monthLabel(month.month), color: 'var(--forest)' },
+        {
+          key: 'electricity',
+          label: 'Electricity',
+          cost: month.electricityCostGbp,
+          detail: [`${quantity.format(month.electricityKwh)} kWh`, electricityRate].filter(Boolean).join(' · '),
+        },
+        {
+          key: 'gas',
+          label: 'Gas',
+          cost: month.gasCostGbp,
+          detail: [
+            `${quantity.format(month.gasKwh ?? 0)} kWh`,
+            Number.isFinite(gasRatePence) ? `${gasRatePence.toFixed(1)}p/kWh` : null,
+          ].filter(Boolean).join(' · '),
+        },
+        {
+          key: 'ev',
+          label: 'EV charge',
+          cost: month.evCostGbp,
+          detail: month.evKwh > 0
+            ? [`${quantity.format(month.evKwh)} kWh`, efficiency].filter(Boolean).join(' · ')
+            : 'No EV charging',
+        },
+        {
+          key: 'total',
+          label: 'Total',
+          cost: month.totalCostGbp,
+          detail: `${currency.format(month.totalCostGbp / days)} per day`,
+        },
       ];
       const summary = document.getElementById('summary');
       summary.replaceChildren();
       for (const category of categories) {
         const card = element('article', 'summary-card');
-        card.style.setProperty('--accent', category.color);
+        card.style.setProperty('--accent', CARD_ACCENTS[category.key]);
         const label = element('div', 'summary-label');
         label.append(element('span', 'swatch'), element('span', '', category.label));
         card.append(label, element('strong', 'summary-value', currency.format(category.cost)), element('p', 'summary-detail', category.detail));
         summary.append(card);
+      }
+    }
+
+    function selectMonth(monthKey) {
+      const month = monthRows.find(row => row.month === monthKey);
+      if (!month) return;
+      selectedMonth = monthKey;
+      renderSummary(month);
+      for (const row of document.querySelectorAll('#chart .chart-row')) {
+        row.setAttribute('aria-pressed', String(row.dataset.month === monthKey));
       }
     }
 
@@ -757,7 +1072,11 @@
       const labels = { electricity: 'Electricity', gas: 'Gas', ev: 'EV charging' };
 
       for (const month of months) {
-        const row = element('div', `chart-row${month.month === current ? ' current' : ''}`);
+        const row = element('button', `chart-row${month.month === current ? ' current' : ''}`);
+        row.type = 'button';
+        row.dataset.month = month.month;
+        row.setAttribute('aria-pressed', String(month.month === selectedMonth));
+        row.setAttribute('aria-label', `${monthLabel(month.month)}: ${currency.format(month.totalCostGbp)} total. Show this month in the summary.`);
         const name = element('span', 'chart-month', monthLabel(month.month));
         const track = element('div', 'bar-track');
         track.setAttribute('aria-hidden', 'true');
@@ -781,6 +1100,99 @@
       }
     }
 
+    function efficiencyScale(maxValue) {
+      const raw = Math.max(0.5, maxValue);
+      const roughStep = raw / 5;
+      const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+      const step = [1, 2, 2.5, 5, 10]
+        .map(multiplier => multiplier * magnitude)
+        .find(candidate => candidate >= roughStep) || 10 * magnitude;
+      const max = Number((Math.ceil(raw / step) * step).toFixed(2));
+      return { max, intervals: Math.round(max / step) };
+    }
+
+    function tickLabel(value) {
+      return Number.isInteger(value) ? String(value) : value.toFixed(1);
+    }
+
+    function renderEfficiency(months) {
+      const chart = document.getElementById('efficiency-chart');
+      chart.replaceChildren();
+      const current = currentLondonMonth();
+      const known = months.map(month => month.evEfficiencyMiPerKwh).filter(Number.isFinite);
+      const scale = efficiencyScale(known.length > 0 ? Math.max(...known) : 0);
+
+      const axis = element('div', 'column-axis');
+      axis.setAttribute('aria-hidden', 'true');
+      for (let index = scale.intervals; index >= 0; index -= 1) {
+        axis.append(element('span', '', tickLabel(scale.max / scale.intervals * index)));
+      }
+
+      const plot = element('div', 'column-plot');
+      const grid = element('div', 'column-grid');
+      grid.setAttribute('aria-hidden', 'true');
+      for (let index = 0; index <= scale.intervals; index += 1) grid.append(element('span'));
+
+      const bars = element('div', 'column-bars');
+      const labels = element('div', 'column-labels');
+      months.forEach((month) => {
+        const value = month.evEfficiencyMiPerKwh;
+        const hasValue = Number.isFinite(value);
+        const percent = hasValue ? Math.max(0, value / scale.max * 100) : 0;
+        const column = element('div', `column${hasValue ? '' : ' empty'}`);
+        column.setAttribute('role', 'img');
+        column.setAttribute('aria-label', hasValue
+          ? `${monthLabel(month.month)}: ${value.toFixed(2)} miles per kWh, ${quantity.format(month.evMiles)} miles from ${quantity.format(month.evKwh)} kWh.`
+          : `${monthLabel(month.month)}: no efficiency data.`);
+
+        if (hasValue) {
+          const bar = element('div', 'column-bar');
+          bar.style.height = `${percent}%`;
+          column.append(bar);
+          const figure = element('span', 'column-value', value.toFixed(2));
+          figure.style.bottom = `calc(${percent}% + 4px)`;
+          column.append(figure);
+          column.title = `${value.toFixed(2)} mi/kWh · ${quantity.format(month.evMiles)} miles · ${quantity.format(month.evKwh)} kWh`;
+        } else {
+          column.append(element('span', 'column-marker'));
+          column.title = month.evKwh > 0
+            ? 'No odometer baseline for this month'
+            : 'No EV charging recorded for this month';
+        }
+        bars.append(column);
+
+        const label = element('div', `column-label${month.month === current ? ' current' : ''}${hasValue ? '' : ' muted'}`);
+        label.textContent = shortMonthLabel(month.month);
+        labels.append(label);
+      });
+
+      plot.append(grid, bars);
+      chart.append(axis, plot, element('div'), labels);
+
+      const first = months[0];
+      const last = months[months.length - 1];
+      document.getElementById('efficiency-kicker').textContent =
+        `Miles per kWh · ${shortMonthLabel(first.month)} ${monthYear(first.month)} – ${shortMonthLabel(last.month)} ${monthYear(last.month)}`;
+
+      const latest = [...months].reverse().find(month => Number.isFinite(month.evEfficiencyMiPerKwh));
+      const summary = document.getElementById('efficiency-summary');
+      summary.replaceChildren();
+      if (!latest) {
+        summary.textContent = 'Efficiency appears once a month has both an odometer baseline and EV charging.';
+        return;
+      }
+      const per100 = (100 / latest.evEfficiencyMiPerKwh).toFixed(1);
+      const pencePerMile = latest.evMiles > 0
+        ? `${(latest.evCostGbp * 100 / latest.evMiles).toFixed(1)}p per mile`
+        : null;
+      summary.append(
+        document.createTextNode(`${monthLabel(latest.month)} · `),
+        element('strong', '', `${latest.evEfficiencyMiPerKwh.toFixed(2)} mi/kWh`),
+        document.createTextNode(` · ${per100} kWh/100 mi`),
+        document.createTextNode(pencePerMile ? ` · ${pencePerMile}` : ''),
+      );
+    }
+
     function renderTable(months) {
       const body = document.getElementById('monthly-rows');
       body.replaceChildren();
@@ -794,12 +1206,19 @@
 
         const cells = [
           { cost: month.electricityCostGbp, usage: `${quantity.format(month.electricityKwh)} kWh` },
-          { cost: month.gasCostGbp, usage: `${quantity.format(month.gasM3)} m³` },
-          { cost: month.evCostGbp, usage: `${quantity.format(month.evKwh)} kWh` },
+          { cost: month.gasCostGbp, usage: `${quantity.format(month.gasKwh ?? 0)} kWh`, note: `${quantity.format(month.gasM3)} m³ on the meter` },
+          { cost: month.evKwh > 0 ? month.evCostGbp : null, usage: month.evKwh > 0 ? `${quantity.format(month.evKwh)} kWh` : null },
         ];
         for (const cell of cells) {
           const td = element('td');
-          td.append(element('span', 'money', currency.format(cell.cost)), element('span', 'quantity', cell.usage));
+          if (cell.cost === null) {
+            td.className = 'empty-cell';
+            td.textContent = '—';
+          } else {
+            td.append(element('span', 'money', currency.format(cell.cost)));
+            if (cell.usage) td.append(element('span', 'quantity', cell.usage));
+            if (cell.note) td.title = cell.note;
+          }
           row.append(td);
         }
 
@@ -834,11 +1253,11 @@
         }).format(new Date(charge.chargedAt));
         row.append(
           element('td', 'month-cell', chargedAt),
-          element('td', '', charge.provider),
-          element('td', '', charge.location),
-          element('td', '', `${quantity.format(charge.energyKwh)} kWh`),
-          element('td', 'total-cell', currency.format(charge.costGbp)),
-          element('td', '', charge.notes || ' '),
+          element('td', 'text-cell', charge.provider),
+          element('td', 'text-cell', charge.location),
+          element('td', 'nowrap', `${quantity.format(charge.energyKwh)} kWh`),
+          element('td', 'total-cell nowrap', currency.format(charge.costGbp)),
+          element('td', 'text-cell', charge.notes || ' '),
         );
         body.append(row);
       }
@@ -866,10 +1285,10 @@
           element('td', 'month-cell', date),
           element('td', '', `${quantity.format(total.energyKwh)} kWh`),
           element('td', 'total-cell', currency.format(total.costGbp)),
-          element('td', '', total.notes || ' '),
+          element('td', 'text-cell', total.notes || ' '),
         );
         const action = element('td');
-        const edit = element('button', '', 'Edit');
+        const edit = element('button', 'row-action', 'Edit');
         edit.type = 'button';
         edit.dataset.date = total.date;
         edit.dataset.energyKwh = String(total.energyKwh);
@@ -904,10 +1323,16 @@
         ]);
         if (!Array.isArray(data.months) || data.months.length === 0) throw new Error('No monthly data is available yet.');
 
-        const current = data.months.find(month => month.month === currentLondonMonth()) || data.months[data.months.length - 1];
-        renderSummary(current);
-        renderChart(data.months);
-        renderTable(data.months);
+        monthRows = data.months;
+        gasRatePence = Number(data.gasUnitRatePence);
+        const preferred = monthRows.find(month => month.month === selectedMonth)
+          || monthRows.find(month => month.month === currentLondonMonth())
+          || monthRows[monthRows.length - 1];
+        selectedMonth = preferred.month;
+        renderSummary(preferred);
+        renderChart(monthRows);
+        renderEfficiency(monthRows);
+        renderTable(monthRows);
         renderPublicCharges(chargeData.charges || []);
         renderManualEvTotals(manualEvData.totals || []);
         document.getElementById('gas-rate').textContent = `Gas estimate at ${quantity.format(data.gasUnitRatePence)}p/kWh`;
@@ -925,6 +1350,10 @@
     }
 
     document.getElementById('refresh').addEventListener('click', loadData);
+    document.getElementById('chart').addEventListener('click', (event) => {
+      const row = event.target.closest('button.chart-row');
+      if (row) selectMonth(row.dataset.month);
+    });
     document.querySelectorAll('[data-dialog-open]').forEach((button) => {
       button.addEventListener('click', () => {
         document.getElementById(button.dataset.dialogOpen).showModal();

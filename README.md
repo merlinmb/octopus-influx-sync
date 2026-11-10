@@ -6,7 +6,7 @@ A Node.js service to sync Octopus Energy smart meter data and tariff rates into 
 - Fetches and stores electricity and gas consumption data from Octopus Energy
 - Syncs active Octopus tariff rates daily, including Intelligent Octopus Go day/night rates
 - Optionally syncs Octopus smart-charging dispatches into daily EV totals
-- Provides a website to log public EV charging receipts
+- Provides a website to log public EV charging receipts, with clickable monthly costs and an EV efficiency (mi/kWh) chart
 - Schedules data syncs using cron
 - Deployable via PowerShell or Bash scripts
 - Docker support for easy deployment
@@ -54,7 +54,8 @@ A Node.js service to sync Octopus Energy smart meter data and tariff rates into 
 - The service will schedule and run data syncs automatically.
 - Logs and errors are printed to the console and available via Docker logs if running in a container.
 - The monthly cost dashboard is available at `http://<server-address>:3002/` by default. Change `DASHBOARD_PORT` if that port is already in use. The page has no login, so keep the published port on a trusted network and do not expose it directly to the internet.
-- The website caches its aggregated monthly-cost data in memory for up to 24 hours and warms the cache after the initial sync. Saving a public charge or home EV total invalidates it; scheduled sync updates may take up to 24 hours to appear. The cache starts empty after a service restart.
+- The **Cost by month** rows are buttons: choosing a month updates the month heading and the four summary cards (and defaults to the current month on load). Each card shows its cost plus a derived figure: p/kWh for electricity and gas, mi/kWh for EV charging, and cost per day for the total. The **EV efficiency** chart shows monthly miles per kWh, with the latest month's kWh/100 mi and pence per mile beneath it.
+- The website caches its aggregated monthly-cost data in memory for up to 24 hours and warms the cache after the initial sync. A completed sync or a saved public charge/home EV total invalidates the cache, so the next page load recomputes it. The cache starts empty after a service restart.
 
 ### EV charging data
 
@@ -65,6 +66,12 @@ The `ev_charge_daily` measurement stores `charge_kwh`, `charge_cost_pence`, and 
 Use the website's **Home EV low-rate charging** form to enter a daily energy and cost total from the Octopus app. Saving an existing date replaces that day's SmartFlex estimate in `ev_charge_daily`, and the saved value is reapplied after scheduled session refreshes. The separate `ev_manual_daily` measurement retains the app entry and note. Enter the complete daily app total, not only the difference from the automatic estimate. The recent entries can be edited from the website.
 
 The monthly costs website includes a public-charge form. Enter the session date/time, energy, provider and amount paid; location and a receipt note are optional. These entries are stored separately in `public_ev_charge` and their exact receipt amount and energy are included in monthly EV totals. The website has no login, so keep its port on a trusted network.
+
+### EV efficiency (mi/kWh)
+
+The dashboard reads cumulative odometer points from the car bridge and turns them into monthly mileage. Defaults match the `mcmdhome` Volvo bridge: database `environmentals`, measurement `mcmdhome/volvo/odometer`, field `value`. Volvo reports distance in kilometres, so the default unit is `km` and values are converted to miles. Override with `VOLVO_ODOMETER_DATABASE`, `VOLVO_ODOMETER_MEASUREMENT`, and `VOLVO_ODOMETER_UNIT` (`km` or `mi`).
+
+For each month the service uses the last odometer reading in the month minus the last reading from a previous month. The month is left blank unless it has its own reading and a baseline reading no more than 45 days older, so a feed outage does not inflate a later month. Efficiency is monthly miles divided by that month's EV charge energy (home sessions plus public receipts); the mileage and kWh are shown in each bar's tooltip. Months with no efficiency yet are drawn as a hollow marker rather than a zero bar. Odometer history only exists from when the bridge started writing it, so earlier months stay blank. If the car arrived with a charged battery, the first month's efficiency will read high until enough charging history accumulates.
 
 ## Grafana Dashboard
 

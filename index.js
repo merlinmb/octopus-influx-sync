@@ -22,6 +22,9 @@ const GAS = {
   serial: 'E6S17957722261',
 };
 
+// Gas meters record cubic metres; bills use kWh. ~39.2 MJ per m³, 3.6 MJ per kWh.
+const GAS_KWH_PER_M3 = 39.2 / 3.6;
+
 // ─── Config from Environment ──────────────────────────────────────────────────
 
 function loadConfig() {
@@ -41,11 +44,24 @@ function loadConfig() {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
 
+  // The car bridge writes odometer points into another InfluxDB database. The
+  // dashboard reads them to calculate monthly EV efficiency (mi/kWh). Volvo
+  // reports distance in kilometres by default, so values are converted to miles.
+  const odometerUnit = String(process.env.VOLVO_ODOMETER_UNIT || 'km').trim().toLowerCase();
+  const odometerUnitIsKm = ['km', 'kilometre', 'kilometres', 'kilometer', 'kilometers'].includes(odometerUnit);
+
   return {
     octopusApiKey: required.OCTOPUS_API_KEY,
     octopusAccountNumber: process.env.OCTOPUS_ACCOUNT_NUMBER || null,
     dashboardPort: parseInt(process.env.DASHBOARD_PORT || '3000', 10),
     gasUnitRatePence: parseFloat(process.env.GAS_UNIT_RATE_PENCE || '6.24'),
+    odometer: {
+      database: process.env.VOLVO_ODOMETER_DATABASE || 'environmentals',
+      measurement: process.env.VOLVO_ODOMETER_MEASUREMENT || 'mcmdhome/volvo/odometer',
+      unit: odometerUnitIsKm ? 'km' : 'mi',
+      // Multiplier applied to raw odometer values to express them in miles.
+      milesFactor: odometerUnitIsKm ? 0.621371 : 1,
+    },
     influx: {
       host: required.INFLUXDB_HOST,
       port: parseInt(process.env.INFLUXDB_PORT || '8086', 10),
@@ -379,29 +395,97 @@ function shiftMonth(monthKey, amount) {
   return new Date(Date.UTC(year, month - 1 + amount, 1)).toISOString().slice(0, 7);
 }
 
-async function queryMeasurement(influx, measurement, fields, from) {
+async function queryMeasurement(influx, measurement, fields, from, options = {}) {
   try {
     return await influx.query(
-      `SELECT ${fields.join(', ')} FROM ${measurement} WHERE time >= '${from}'`
+      `SELECT ${fields.join(', ')} FROM ${measurement} WHERE time >= '${from}'`,
+      options.database ? { database: options.database } : undefined
     );
   } catch (err) {
-    if (/measurement not found|retention policy .* not found/i.test(err.message)) {
+    if (/measurement not found|retention policy .* not found|database not found/i.test(err.message)) {
       return [];
     }
     throw err;
   }
 }
 
-async function getMonthlyCosts(influx, gasUnitRatePence) {
+function escapeInfluxName(name) {
+  return `"${String(name).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * Calculates miles driven per London calendar month from the car's odometer.
+ *
+ * The odometer is written as cumulative readings, so a month's distance is the
+ * last reading in the month minus the last reading from an earlier month. A
+ * month is only reported when it has at least one reading and a baseline no
+ * more than 45 days older than the month, which avoids attributing a long gap
+ * in the feed to a single month. Values are converted from the configured
+ * odometer unit to miles.
+ */
+async function getMonthlyMiles(influx, odometer, monthKeys) {
+  const from = new Date(`${shiftMonth(monthKeys[0], -1)}-01T00:00:00.000Z`).toISOString();
+  let rows;
+  try {
+    rows = await queryMeasurement(
+      influx,
+      escapeInfluxName(odometer.measurement),
+      ['value'],
+      from,
+      { database: odometer.database }
+    );
+  } catch (err) {
+    // Efficiency is supplementary: a missing or unreadable odometer database
+    // must not take the cost dashboard down.
+    console.warn('[Dashboard] Odometer query failed:', err.message);
+    return new Map();
+  }
+
+  const readings = rows
+    .map((row) => ({ time: new Date(row.time).getTime(), value: Number(row.value) }))
+    .filter((reading) => Number.isFinite(reading.time) && Number.isFinite(reading.value))
+    .sort((left, right) => left.time - right.time);
+
+  const readingsByMonth = new Map(monthKeys.map((key) => [key, []]));
+  const readingsBefore = [];
+  for (const reading of readings) {
+    const key = londonMonthKey(new Date(reading.time));
+    if (readingsByMonth.has(key)) {
+      readingsByMonth.get(key).push(reading);
+    } else if (key < monthKeys[0]) {
+      readingsBefore.push(reading);
+    }
+  }
+
+  const maxBaselineAgeMs = 45 * 24 * 60 * 60 * 1000;
+  const milesByMonth = new Map();
+  let baseline = readingsBefore.length > 0 ? readingsBefore[readingsBefore.length - 1] : null;
+
+  for (const key of monthKeys) {
+    const monthReadings = readingsByMonth.get(key);
+    const monthStart = new Date(`${key}-01T00:00:00.000Z`).getTime();
+    const last = monthReadings[monthReadings.length - 1];
+    if (baseline && last && monthStart - baseline.time <= maxBaselineAgeMs) {
+      const miles = (last.value - baseline.value) * odometer.milesFactor;
+      if (Number.isFinite(miles) && miles >= 0) milesByMonth.set(key, miles);
+    }
+    if (last) baseline = last;
+  }
+
+  return milesByMonth;
+}
+
+async function getMonthlyCosts(influx, gasUnitRatePence, config) {
   const currentMonth = londonMonthKey(new Date());
   const monthKeys = Array.from({ length: 12 }, (_, index) => shiftMonth(currentMonth, index - 11));
   const from = new Date(`${monthKeys[0]}-01T00:00:00.000Z`).toISOString();
-  const [electricityRows, tariffRows, gasRows, evRows, publicChargeRows] = await Promise.all([
+  const [electricityRows, tariffRows, gasRows, evRows, publicChargeRows, milesByMonth] = await Promise.all([
     queryMeasurement(influx, 'electricity_consumption', ['consumption_kwh'], from),
     queryMeasurement(influx, 'electricity_tariff', ['unit_rate_pence', 'tariff_code'], from),
     queryMeasurement(influx, 'gas_consumption', ['consumption_m3'], from),
     queryMeasurement(influx, 'ev_charge_daily', ['charge_kwh', 'charge_cost_pence', 'cost_complete'], from),
     queryMeasurement(influx, 'public_ev_charge', ['energy_kwh', 'cost_pence'], from),
+    config?.odometer ? getMonthlyMiles(influx, config.odometer, monthKeys) : Promise.resolve(new Map()),
   ]);
 
   const months = new Map(monthKeys.map((month) => [month, {
@@ -411,6 +495,7 @@ async function getMonthlyCosts(influx, gasUnitRatePence) {
     electricityUnpricedIntervals: 0,
     gasCostGbp: 0,
     gasM3: 0,
+    gasKwh: 0,
     evCostGbp: 0,
     evKwh: 0,
     evDays: 0,
@@ -450,7 +535,8 @@ async function getMonthlyCosts(influx, gasUnitRatePence) {
     const m3 = Number(row.consumption_m3);
     if (!Number.isFinite(m3)) continue;
     month.gasM3 += m3;
-    month.gasCostGbp += m3 * 39.2 / 3.6 * gasUnitRatePence / 100;
+    month.gasKwh += m3 * GAS_KWH_PER_M3;
+    month.gasCostGbp += m3 * GAS_KWH_PER_M3 * gasUnitRatePence / 100;
   }
 
   for (const row of evRows) {
@@ -475,6 +561,12 @@ async function getMonthlyCosts(influx, gasUnitRatePence) {
 
   for (const month of months.values()) {
     month.totalCostGbp = month.electricityCostGbp + month.gasCostGbp + month.evCostGbp;
+    const miles = milesByMonth.get(month.month);
+    month.evMiles = Number.isFinite(miles) ? Math.round(miles * 10) / 10 : null;
+    month.evEfficiencyMiPerKwh =
+      month.evMiles !== null && month.evKwh > 0
+        ? Math.round(month.evMiles / month.evKwh * 100) / 100
+        : null;
   }
 
   return {
@@ -634,7 +726,7 @@ function startDashboardServer(influx, config) {
     }
     if (!monthlyCostsCachePromise) {
       const requestVersion = monthlyCostsCacheVersion;
-      monthlyCostsCachePromise = getMonthlyCosts(influx, config.gasUnitRatePence)
+      monthlyCostsCachePromise = getMonthlyCosts(influx, config.gasUnitRatePence, config)
         .then((result) => {
           if (requestVersion === monthlyCostsCacheVersion) {
             monthlyCostsCache = result;
@@ -822,7 +914,7 @@ function startDashboardServer(influx, config) {
   server.listen(config.dashboardPort, '0.0.0.0', () => {
     console.log(`Monthly costs dashboard listening on port ${config.dashboardPort}`);
   });
-  return warmMonthlyCostsCache;
+  return { warmMonthlyCostsCache, invalidateMonthlyCostsCache };
 }
 
 /**
@@ -1179,7 +1271,7 @@ async function syncEvChargeDaily(apiKey, accountNumber, influx) {
  * in the morning reliably captures the previous day's full data.
  * A 2-hour overlap window ensures no half-hour slots are missed.
  */
-async function runConsumptionSync(apiKey, influx) {
+async function runConsumptionSync(apiKey, influx, onSynced) {
   console.log('\n════════════════════════════════════');
   console.log('  Consumption Sync — ' + new Date().toISOString());
   console.log('════════════════════════════════════');
@@ -1196,6 +1288,7 @@ async function runConsumptionSync(apiKey, influx) {
 
     await syncElectricityConsumption(apiKey, influx, elecFrom, now);
     await syncGasConsumption(apiKey, influx, gasFrom, now);
+    onSynced?.();
 
     console.log('✓ Consumption sync complete.\n');
   } catch (err) {
@@ -1213,7 +1306,7 @@ async function runConsumptionSync(apiKey, influx) {
  * 4 PM, so 16:30 is the earliest reliable fetch window.
  * Fetches through end of tomorrow to always have tomorrow's rates.
  */
-async function runTariffSync(apiKey, accountNumber, influx) {
+async function runTariffSync(apiKey, accountNumber, influx, onSynced) {
   console.log('\n════════════════════════════════════');
   console.log('  Tariff Rate Sync — ' + new Date().toISOString());
   console.log('════════════════════════════════════');
@@ -1228,6 +1321,7 @@ async function runTariffSync(apiKey, accountNumber, influx) {
     endOfTomorrow.setHours(0, 0, 0, 0);
 
     await syncElectricityTariffRates(apiKey, accountNumber, influx, from, endOfTomorrow);
+    onSynced?.();
 
     console.log('✓ Tariff sync complete.\n');
   } catch (err) {
@@ -1238,9 +1332,10 @@ async function runTariffSync(apiKey, accountNumber, influx) {
   }
 }
 
-async function runEvChargeSync(apiKey, accountNumber, influx) {
+async function runEvChargeSync(apiKey, accountNumber, influx, onSynced) {
   try {
     await syncEvChargeDaily(apiKey, accountNumber, influx);
+    onSynced?.();
   } catch (err) {
     console.error('[EV Charge] Sync failed:', err.message);
     if (err.response) {
@@ -1273,32 +1368,33 @@ async function main() {
     process.exit(1);
   }
 
-  const warmMonthlyCostsCache = startDashboardServer(influx, config);
+  const dashboard = startDashboardServer(influx, config);
+  const onSynced = () => dashboard.invalidateMonthlyCostsCache();
 
   const { octopusApiKey, octopusAccountNumber } = config;
 
   // ── Initial backfill on startup ──────────────────────────────────────────
-  await runConsumptionSync(octopusApiKey, influx);
-  await runTariffSync(octopusApiKey, octopusAccountNumber, influx);
+  await runConsumptionSync(octopusApiKey, influx, onSynced);
+  await runTariffSync(octopusApiKey, octopusAccountNumber, influx, onSynced);
   if (octopusAccountNumber) {
-    await runEvChargeSync(octopusApiKey, octopusAccountNumber, influx);
+    await runEvChargeSync(octopusApiKey, octopusAccountNumber, influx, onSynced);
   }
-  await warmMonthlyCostsCache();
+  await dashboard.warmMonthlyCostsCache();
 
   // ── 06:00 daily — consumption sync (data ready ~24h after metering) ───────
-  cron.schedule('0 6 * * *', () => runConsumptionSync(octopusApiKey, influx), {
+  cron.schedule('0 6 * * *', () => runConsumptionSync(octopusApiKey, influx, onSynced), {
     timezone: 'Europe/London',
   });
   console.log('⏰ Scheduled: consumption sync at 06:00 Europe/London');
 
   // ── 16:30 daily — Agile rate sync (tomorrow's prices published ~16:00) ────
-  cron.schedule('30 16 * * *', () => runTariffSync(octopusApiKey, octopusAccountNumber, influx), {
+  cron.schedule('30 16 * * *', () => runTariffSync(octopusApiKey, octopusAccountNumber, influx, onSynced), {
     timezone: 'Europe/London',
   });
   console.log('⏰ Scheduled: tariff rate sync at 16:30 Europe/London');
 
   if (octopusAccountNumber) {
-    cron.schedule('15 */6 * * *', () => runEvChargeSync(octopusApiKey, octopusAccountNumber, influx), {
+    cron.schedule('15 */6 * * *', () => runEvChargeSync(octopusApiKey, octopusAccountNumber, influx, onSynced), {
       timezone: 'Europe/London',
     });
     console.log('⏰ Scheduled: EV dispatch refresh every 6 hours Europe/London');
