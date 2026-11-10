@@ -54,6 +54,7 @@ A Node.js service to sync Octopus Energy smart meter data and tariff rates into 
 - The service will schedule and run data syncs automatically.
 - Logs and errors are printed to the console and available via Docker logs if running in a container.
 - The monthly cost dashboard is available at `http://<server-address>:3002/` by default. Change `DASHBOARD_PORT` if that port is already in use. The page has no login, so keep the published port on a trusted network and do not expose it directly to the internet.
+- The website caches its aggregated monthly-cost data in memory for up to 24 hours and warms the cache after the initial sync. Saving a public charge or home EV total invalidates it; scheduled sync updates may take up to 24 hours to appear. The cache starts empty after a service restart.
 
 ### EV charging data
 
@@ -71,6 +72,8 @@ The monthly costs website includes a public-charge form. Enter the session date/
 - When connecting Grafana to InfluxDB, ensure the data source is set to use the **Flux** query language (not InfluxQL) for full compatibility with InfluxDB 2.x and this project's schema.
 
 The importable `grafana-dashboard.json` includes **Last Month — EV Cost** and **This Month So Far — EV Cost** stat panels. Both combine complete home EV session costs with logged public charging receipts; the current-month panel shows a cumulative daily total.
+
+Grafana queries InfluxDB directly and does not use the website's monthly-cost cache.
 
 ### Monthly cost logbook
 
