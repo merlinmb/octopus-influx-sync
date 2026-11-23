@@ -306,7 +306,7 @@ async function fetchSmartFlexChargingSessions(apiKey, accountNumber, from, to) {
 
   return (response.data.data?.devices || [])
     .flatMap((device) => device.chargingSessions?.edges?.map((edge) => edge.node) || [])
-    .filter((session) => session.__typename === 'SmartFlexChargingSession' && session.type === 'SMART');
+    .filter((session) => session.__typename === 'SmartFlexChargingSession');
 }
 
 function londonDateKey(date) {
@@ -503,6 +503,7 @@ async function getMonthlyCosts(influx, gasUnitRatePence, config) {
     evIncompleteDays: 0,
     totalCostGbp: 0,
   }]));
+  const dailyEvByMonth = new Map(monthKeys.map((month) => [month, new Map()]));
   const ratesByTime = new Map();
   for (const row of tariffRows) {
     const time = new Date(row.time).getTime();
@@ -542,21 +543,47 @@ async function getMonthlyCosts(influx, gasUnitRatePence, config) {
   for (const row of evRows) {
     const month = months.get(londonMonthKey(new Date(row.time)));
     if (!month) continue;
+    const date = londonDateKey(new Date(row.time));
+    const day = dailyEvByMonth.get(month.month).get(date) || {
+      date,
+      energyKwh: 0,
+      costGbp: 0,
+      costComplete: true,
+    };
     month.evDays += 1;
-    month.evKwh += Number(row.charge_kwh) || 0;
-    if (row.cost_complete === true || row.cost_complete === 'true') {
-      month.evCostGbp += (Number(row.charge_cost_pence) || 0) / 100;
+    const energyKwh = Number(row.charge_kwh) || 0;
+    const costComplete = row.cost_complete === true || row.cost_complete === 'true';
+    const costGbp = (Number(row.charge_cost_pence) || 0) / 100;
+    month.evKwh += energyKwh;
+    day.energyKwh += energyKwh;
+    if (costComplete) {
+      month.evCostGbp += costGbp;
+      day.costGbp += costGbp;
     } else {
       month.evIncompleteDays += 1;
+      day.costComplete = false;
     }
+    dailyEvByMonth.get(month.month).set(date, day);
   }
 
   for (const row of publicChargeRows) {
     const month = months.get(londonMonthKey(new Date(row.time)));
     if (!month) continue;
+    const date = londonDateKey(new Date(row.time));
+    const day = dailyEvByMonth.get(month.month).get(date) || {
+      date,
+      energyKwh: 0,
+      costGbp: 0,
+      costComplete: true,
+    };
     month.publicChargeCount += 1;
-    month.evKwh += Number(row.energy_kwh) || 0;
-    month.evCostGbp += (Number(row.cost_pence) || 0) / 100;
+    const energyKwh = Number(row.energy_kwh) || 0;
+    const costGbp = (Number(row.cost_pence) || 0) / 100;
+    month.evKwh += energyKwh;
+    month.evCostGbp += costGbp;
+    day.energyKwh += energyKwh;
+    day.costGbp += costGbp;
+    dailyEvByMonth.get(month.month).set(date, day);
   }
 
   for (const month of months.values()) {
@@ -567,6 +594,18 @@ async function getMonthlyCosts(influx, gasUnitRatePence, config) {
       month.evMiles !== null && month.evKwh > 0
         ? Math.round(month.evMiles / month.evKwh * 100) / 100
         : null;
+    const [year, monthNumber] = month.month.split('-').map(Number);
+    const dayCount = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+    const daily = dailyEvByMonth.get(month.month);
+    month.evDaily = Array.from({ length: dayCount }, (_, index) => {
+      const date = `${month.month}-${String(index + 1).padStart(2, '0')}`;
+      return daily.get(date) || {
+        date,
+        energyKwh: 0,
+        costGbp: 0,
+        costComplete: true,
+      };
+    });
   }
 
   return {
@@ -1152,9 +1191,10 @@ async function syncElectricityTariffRates(apiKey, accountNumber, influx, from, t
 }
 
 /**
- * Syncs Octopus smart-charging dispatches into daily EV totals. Octopus only
- * retains a short dispatch history, so the latest three London calendar days
- * are re-fetched and rewritten on every run to pick up corrections.
+ * Syncs Octopus smart-charging sessions into daily EV totals. Both SMART
+ * (scheduled) and BOOST (manual bump) sessions add energy to the car, so the
+ * latest seven London calendar days are re-fetched and rewritten on every run
+ * to pick up corrections.
  */
 async function syncEvChargeDaily(apiKey, accountNumber, influx) {
   const label = '[EV Charge]';

@@ -148,6 +148,7 @@
     .summary-label {
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 9px;
       margin-bottom: 14px;
       color: var(--muted);
@@ -166,6 +167,7 @@
       display: block;
       font: 500 34px/1 var(--font-display);
       font-variant-numeric: tabular-nums;
+      text-align: center;
     }
 
     .summary-detail {
@@ -173,6 +175,7 @@
       color: var(--muted);
       font-size: clamp(10px, 2.9vw, 12px);
       font-variant-numeric: tabular-nums;
+      text-align: center;
     }
 
     .summary-card .summary-detail { margin-top: auto; padding-top: 9px; }
@@ -398,6 +401,80 @@
 
     .efficiency-summary strong { font-weight: 700; }
 
+    .daily-ev-chart {
+      padding-top: 26px;
+    }
+
+    .daily-ev-chart .column-chart {
+      margin-top: 0;
+    }
+
+    .daily-ev-chart .column-bars,
+    .daily-ev-chart .column-labels {
+      grid-template-columns: repeat(var(--day-count), minmax(12px, 1fr));
+      gap: 3px;
+    }
+
+    button.daily-ev-column {
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button.daily-ev-column:focus-visible {
+      outline: 2px solid #8fae2e;
+      outline-offset: 1px;
+    }
+
+    button.daily-ev-column.selected { background: #e0eadf; }
+
+    .daily-ev-column .column-bar {
+      min-width: 3px;
+      max-width: 24px;
+    }
+
+    .daily-ev-tooltip {
+      position: absolute;
+      z-index: 2;
+      left: 50%;
+      bottom: calc(100% + 8px);
+      width: max-content;
+      max-width: 180px;
+      padding: 7px 9px;
+      border-radius: 3px;
+      background: var(--ink);
+      color: var(--surface);
+      font-size: 11px;
+      line-height: 1.35;
+      text-align: left;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateX(-50%);
+    }
+
+    .daily-ev-column:hover .daily-ev-tooltip,
+    .daily-ev-column:focus-visible .daily-ev-tooltip,
+    .daily-ev-column.selected .daily-ev-tooltip {
+      opacity: 1;
+    }
+
+    .daily-ev-value {
+      position: absolute;
+      top: 6px;
+      left: 50%;
+      color: var(--muted);
+      font-size: 9px;
+      white-space: nowrap;
+      transform: translateX(-50%) rotate(-90deg);
+      transform-origin: center;
+      font-variant-numeric: tabular-nums;
+    }
+
     .chart-note {
       margin: 6px 0 0;
       color: var(--muted);
@@ -435,21 +512,23 @@
       white-space: nowrap;
     }
 
+    td { font-size: 14px; }
+
     th:first-child,
     td:first-child { text-align: left; }
     tbody tr:last-child td { border-bottom: 0; }
     tbody tr.current { background: #f6f8f2; }
 
-    .month-cell { font-weight: 650; white-space: nowrap; }
+    .month-cell { font-size: 13px; font-weight: 650; white-space: nowrap; }
     .money { display: block; font-size: 14px; font-weight: 650; }
     .quantity { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
-    .total-cell { font-weight: 750; }
+    .total-cell { font-weight: 700; }
 
     .text-cell { text-align: left; }
+    .note-cell { color: var(--muted); font-size: 12px; }
     .nowrap { white-space: nowrap; }
 
     tbody th.month-cell {
-      font-size: 13px;
       letter-spacing: 0;
       text-transform: none;
       color: var(--ink);
@@ -473,7 +552,7 @@
       max-width: 170px;
       margin: 0;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 12px;
       text-align: left;
     }
 
@@ -672,6 +751,10 @@
       .column-labels { gap: 4px; }
       .column-label { font-size: 10px; }
       .column-value { font-size: 9px; }
+      .daily-ev-chart .column-bars,
+      .daily-ev-chart .column-labels { gap: 2px; }
+      .daily-ev-chart .column-label { font-size: 9px; }
+      .daily-ev-value { display: none; }
       .charge-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
       .manual-ev-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
       .charge-dialog {
@@ -691,6 +774,9 @@
       .column-chart { grid-template-columns: 28px minmax(0, 1fr); column-gap: 6px; }
       .column-label { font-size: 9px; }
       .column-value { font-size: 8px; }
+      .daily-ev-chart .column-bars,
+      .daily-ev-chart .column-labels { gap: 1px; }
+      .daily-ev-chart .column-label { font-size: 8px; }
       .actions { align-items: flex-start; flex-direction: column; gap: 10px; }
       .period-label { white-space: normal; }
       .charge-submit-row { align-items: stretch; flex-direction: column; }
@@ -763,6 +849,20 @@
         <div id="efficiency-chart" class="column-chart" role="group" aria-label="Monthly EV efficiency chart"></div>
         <p id="efficiency-summary" class="efficiency-summary"></p>
         <p class="chart-note">Miles driven come from the Volvo odometer. Energy is the EV charge total above, combining home sessions and public receipts. Months without odometer history stay blank.</p>
+      </section>
+
+      <section class="section" aria-labelledby="daily-ev-title">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker" id="daily-ev-kicker">Daily charging</p>
+            <h2 id="daily-ev-title">EV charge for selected month</h2>
+          </div>
+          <div class="legend" aria-label="EV charging units">
+            <span class="legend-item"><span class="swatch" style="--accent: var(--ev)"></span>kWh charged</span>
+          </div>
+        </div>
+        <div id="daily-ev-chart" class="daily-ev-chart"></div>
+        <p class="chart-note">Click or focus a column to pin its daily cost and energy. Home EV totals and public receipts are combined by date.</p>
       </section>
 
       <section class="section" aria-labelledby="home-ev-title">
@@ -1059,6 +1159,7 @@
       if (!month) return;
       selectedMonth = monthKey;
       renderSummary(month);
+      renderDailyEv(month);
       for (const row of document.querySelectorAll('#chart .chart-row')) {
         row.setAttribute('aria-pressed', String(row.dataset.month === monthKey));
       }
@@ -1193,6 +1294,76 @@
       );
     }
 
+    function renderDailyEv(month) {
+      const wrapper = document.getElementById('daily-ev-chart');
+      wrapper.replaceChildren();
+      const days = Array.isArray(month.evDaily) ? month.evDaily : [];
+      const known = days.map(day => Number(day.energyKwh) || 0);
+      const scale = efficiencyScale(known.length > 0 ? Math.max(...known) : 0);
+      const chart = element('div', 'column-chart');
+      chart.setAttribute('role', 'group');
+      chart.setAttribute('aria-label', `Daily EV charging for ${monthLabel(month.month)}`);
+      chart.style.setProperty('--day-count', String(Math.max(1, days.length)));
+
+      const axis = element('div', 'column-axis');
+      axis.setAttribute('aria-hidden', 'true');
+      for (let index = scale.intervals; index >= 0; index -= 1) {
+        axis.append(element('span', '', tickLabel(scale.max / scale.intervals * index)));
+      }
+
+      const plot = element('div', 'column-plot');
+      const grid = element('div', 'column-grid');
+      grid.setAttribute('aria-hidden', 'true');
+      for (let index = 0; index <= scale.intervals; index += 1) grid.append(element('span'));
+
+      const bars = element('div', 'column-bars');
+      const labels = element('div', 'column-labels');
+      days.forEach((day) => {
+        const energyKwh = Number(day.energyKwh) || 0;
+        const costGbp = Number(day.costGbp) || 0;
+        const costLabel = day.costComplete === false ? 'Cost unavailable' : currency.format(costGbp);
+        const date = new Date(`${day.date}T00:00:00Z`);
+        const dateLabel = new Intl.DateTimeFormat('en-GB', {
+          day: 'numeric',
+          month: 'short',
+          timeZone: 'UTC',
+        }).format(date);
+        const tooltipText = `${dateLabel}: ${quantity.format(energyKwh)} kWh · ${costLabel}`;
+        const column = element('button', `column daily-ev-column${energyKwh > 0 ? '' : ' empty'}`);
+        column.type = 'button';
+        column.title = tooltipText;
+        column.setAttribute('aria-label', tooltipText);
+        column.setAttribute('aria-pressed', 'false');
+        const percent = Math.max(0, energyKwh / scale.max * 100);
+
+        if (energyKwh > 0) {
+          const bar = element('div', 'column-bar');
+          bar.style.height = `${percent}%`;
+          column.append(bar, element('span', 'daily-ev-value', `${quantity.format(energyKwh)}`));
+        } else {
+          column.append(element('span', 'column-marker'));
+        }
+        column.append(element('span', 'daily-ev-tooltip', tooltipText));
+        column.addEventListener('click', () => {
+          for (const other of bars.querySelectorAll('.daily-ev-column')) {
+            const selected = other === column;
+            other.classList.toggle('selected', selected);
+            other.setAttribute('aria-pressed', String(selected));
+          }
+        });
+        bars.append(column);
+
+        const label = element('div', 'column-label', String(Number(day.date.slice(-2))));
+        labels.append(label);
+      });
+
+      plot.append(grid, bars);
+      chart.append(axis, plot, element('div'), labels);
+      wrapper.append(chart);
+      document.getElementById('daily-ev-kicker').textContent =
+        `${monthLabel(month.month)} · click a day for cost`;
+    }
+
     function renderTable(months) {
       const body = document.getElementById('monthly-rows');
       body.replaceChildren();
@@ -1257,7 +1428,7 @@
           element('td', 'text-cell', charge.location),
           element('td', 'nowrap', `${quantity.format(charge.energyKwh)} kWh`),
           element('td', 'total-cell nowrap', currency.format(charge.costGbp)),
-          element('td', 'text-cell', charge.notes || ' '),
+          element('td', 'text-cell note-cell', charge.notes || ' '),
         );
         body.append(row);
       }
@@ -1285,7 +1456,7 @@
           element('td', 'month-cell', date),
           element('td', '', `${quantity.format(total.energyKwh)} kWh`),
           element('td', 'total-cell', currency.format(total.costGbp)),
-          element('td', 'text-cell', total.notes || ' '),
+          element('td', 'text-cell note-cell', total.notes || ' '),
         );
         const action = element('td');
         const edit = element('button', 'row-action', 'Edit');
@@ -1332,6 +1503,7 @@
         renderSummary(preferred);
         renderChart(monthRows);
         renderEfficiency(monthRows);
+        renderDailyEv(preferred);
         renderTable(monthRows);
         renderPublicCharges(chargeData.charges || []);
         renderManualEvTotals(manualEvData.totals || []);
