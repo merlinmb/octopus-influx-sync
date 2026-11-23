@@ -28,12 +28,22 @@
 
     body {
       margin: 0;
+      min-height: 100vh;
       background: var(--paper);
       color: var(--ink);
       font: 15px/1.5 var(--font-ui);
+      display: grid;
+      grid-template-columns: clamp(240px, 20vw, 280px) minmax(0, 1fr);
+      grid-template-rows: 1fr auto;
     }
 
     .masthead {
+      position: sticky;
+      top: 0;
+      grid-column: 1;
+      grid-row: 1 / span 2;
+      align-self: start;
+      min-height: 100vh;
       color: #f4f6ed;
       background-color: var(--forest);
       background-image: repeating-linear-gradient(135deg, transparent 0 34px, rgb(255 255 255 / 3%) 34px 35px);
@@ -47,12 +57,15 @@
     }
 
     .masthead-inner {
-      min-height: 232px;
+      width: auto;
+      min-height: 100vh;
+      margin: 0;
       display: flex;
-      align-items: end;
-      justify-content: space-between;
-      gap: 32px;
-      padding-block: 34px 38px;
+      align-items: stretch;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 24px;
+      padding: 42px 28px 34px;
     }
 
     .kicker,
@@ -72,7 +85,7 @@
 
     h1 {
       margin-bottom: 5px;
-      font: 500 54px/1.02 var(--font-display);
+      font: 500 46px/1.02 var(--font-display);
     }
 
     .masthead-note {
@@ -83,16 +96,38 @@
 
     .actions {
       display: flex;
-      align-items: center;
-      gap: 16px;
-      padding-bottom: 3px;
+      align-items: stretch;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: auto;
     }
 
     .period-label {
       color: #d2dfd7;
       font-size: 12px;
-      white-space: nowrap;
+      line-height: 1.4;
     }
+
+    .refresh-button {
+      width: 42px;
+      padding: 0;
+      display: inline-grid;
+      place-items: center;
+    }
+
+    .refresh-button svg {
+      width: 18px;
+      height: 18px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.8;
+    }
+
+    .refresh-button[aria-busy="true"] svg { animation: refresh-spin .8s linear infinite; }
+
+    @keyframes refresh-spin { to { transform: rotate(360deg); } }
 
     button {
       min-height: 42px;
@@ -109,7 +144,12 @@
     button:focus-visible { outline: 3px solid var(--electric); outline-offset: 3px; }
     button:disabled { cursor: wait; opacity: .7; }
 
-    main { padding-block: 30px 54px; }
+    main {
+      grid-column: 2;
+      grid-row: 1;
+      width: min(1180px, calc(100% - 56px));
+      padding-block: 30px 54px;
+    }
 
     .summary-heading {
       display: flex;
@@ -135,6 +175,30 @@
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px;
     }
+
+    .masthead-summary { color: var(--ink); }
+
+    .masthead-summary .summary-heading {
+      align-items: start;
+      flex-direction: column;
+      gap: 3px;
+      margin-bottom: 12px;
+      color: #f4f6ed;
+    }
+
+    .masthead-summary .section-kicker { color: #c1d58a; }
+    .masthead-summary .summary-heading h2 { font-size: 22px; }
+    .masthead-summary .summary-note { color: #d2dfd7; text-align: left; }
+    .masthead-summary .summary-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .masthead-summary .summary-card {
+      min-height: 80px;
+      padding: 9px 10px 8px;
+      border-color: rgb(255 255 255 / 16%);
+      border-top-width: 3px;
+    }
+    .masthead-summary .summary-label { margin-bottom: 5px; }
+    .masthead-summary .summary-value { font-size: 26px; }
+    .masthead-summary .summary-detail { margin-top: 4px; padding-top: 0; font-size: 10px; }
 
     .summary-card {
       display: flex;
@@ -186,6 +250,12 @@
       margin-top: 34px;
       padding-top: 23px;
       border-top: 1px solid var(--line);
+    }
+
+    #dashboard > .section:first-child {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: 0;
     }
 
     .section-heading {
@@ -486,6 +556,7 @@
 
     .table-wrap {
       overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
       border: 1px solid var(--line);
       border-radius: 5px;
       background: var(--surface);
@@ -723,6 +794,8 @@
     .message.error { color: var(--warning); }
 
     footer {
+      grid-column: 2;
+      grid-row: 2;
       border-top: 1px solid var(--line);
       color: var(--muted);
       font-size: 11px;
@@ -739,6 +812,50 @@
       .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     }
 
+    @media (max-width: 1100px) {
+      body { display: block; }
+
+      .masthead {
+        position: static;
+        min-height: auto;
+      }
+
+      .masthead-inner {
+        width: min(1180px, calc(100% - 48px));
+        min-height: 190px;
+        margin-inline: auto;
+        align-items: end;
+        flex-direction: row;
+        flex-wrap: wrap;
+        padding-block: 34px 32px;
+      }
+
+      .masthead-intro { order: 1; flex: 1 1 360px; }
+      h1 { font-size: 50px; }
+
+      .actions {
+        order: 2;
+        align-items: center;
+        flex-direction: row;
+        gap: 16px;
+        margin-top: 0;
+        padding-bottom: 3px;
+      }
+
+      .period-label { white-space: nowrap; }
+      main { width: min(1180px, calc(100% - 48px)); }
+      .masthead-summary {
+        order: 3;
+        display: block;
+        flex: 0 0 100%;
+      }
+      .masthead-summary .summary-heading {
+        align-items: end;
+        flex-direction: row;
+      }
+      .masthead-summary .summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+
     @media (max-width: 760px) {
       .masthead-inner,
       main,
@@ -748,13 +865,19 @@
         min-height: auto;
         align-items: start;
         flex-direction: column;
-        gap: 23px;
+        gap: 18px;
         padding-block: 28px 25px;
       }
 
-      h1 { font-size: 44px; }
-      .actions { width: 100%; justify-content: space-between; }
+      h1 { font-size: clamp(38px, 10vw, 44px); }
+      .masthead-intro { flex: none; width: 100%; }
+      .actions { order: 2; width: 100%; justify-content: space-between; }
       main { padding-top: 18px; }
+      .masthead-summary { order: 3; display: block; flex: none; width: 100%; }
+      .masthead-summary .summary-heading { align-items: start; flex-direction: column; }
+      .masthead-summary .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+      .masthead-summary .summary-card { min-height: 110px; padding: 13px 12px; }
+      .masthead-summary .summary-value { font-size: 26px; }
       .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
       .summary-card { min-height: 125px; padding: 15px; }
       .summary-value { font-size: 30px; }
@@ -771,7 +894,10 @@
       .column-label { font-size: 10px; }
       .column-value { font-size: 9px; }
       .daily-ev-chart .column-bars,
-      .daily-ev-chart .column-labels { gap: 2px; }
+      .daily-ev-chart .column-labels {
+        grid-template-columns: repeat(var(--day-count), minmax(0, 1fr));
+        gap: 2px;
+      }
       .daily-ev-chart .column-label { font-size: 9px; }
       .daily-ev-value { display: none; }
       .charge-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
@@ -785,6 +911,9 @@
     }
 
     @media (max-width: 380px) {
+      .masthead-inner,
+      main,
+      .footer-inner { width: calc(100% - 24px); }
       .summary-value { font-size: 27px; }
       .summary-label { font-size: 11px; }
       .chart-row { grid-template-columns: 68px minmax(65px, 1fr) 70px; gap: 7px; }
@@ -814,22 +943,12 @@
 <body>
   <header class="masthead">
     <div class="masthead-inner">
-      <div>
+      <div class="masthead-intro">
         <p class="kicker">Household energy / ledger</p>
         <h1>Monthly energy</h1>
         <p class="masthead-note">Electricity, gas and EV charging costs in one place.</p>
       </div>
-      <div class="actions">
-        <span class="period-label">Rolling 12 months · UK time</span>
-        <button id="refresh" type="button">Refresh data</button>
-      </div>
-    </div>
-  </header>
-
-  <main>
-    <p id="status" class="message" role="status">Loading monthly costs...</p>
-    <section id="dashboard" hidden>
-      <div id="summary-region" aria-live="polite" aria-label="Selected month totals">
+      <div id="summary-region" class="masthead-summary" aria-live="polite" aria-label="Selected month totals" hidden>
         <div class="summary-heading">
           <div>
             <p class="section-kicker">Selected month</p>
@@ -839,7 +958,23 @@
         </div>
         <div id="summary" class="summary-grid"></div>
       </div>
+      <div class="actions">
+        <span class="period-label">Rolling 12 months · UK time</span>
+        <button id="refresh" class="refresh-button" type="button" aria-label="Refresh data" title="Refresh data">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 6v5h-5"></path>
+            <path d="M4 18v-5h5"></path>
+            <path d="M18.5 9A7 7 0 0 0 6.2 6.2L4 8.5"></path>
+            <path d="M5.5 15A7 7 0 0 0 17.8 17.8L20 15.5"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
 
+  <main>
+    <p id="status" class="message" role="status">Loading monthly costs...</p>
+    <section id="dashboard" hidden>
       <section class="section" aria-labelledby="chart-title">
         <div class="section-heading">
           <div>
@@ -1518,7 +1653,6 @@
       const button = document.getElementById('refresh');
       button.disabled = true;
       button.setAttribute('aria-busy', 'true');
-      button.textContent = 'Refreshing...';
       status.className = 'message';
       status.textContent = 'Loading monthly costs...';
 
@@ -1552,6 +1686,7 @@
         document.getElementById('gas-rate').textContent = `Gas estimate at ${quantity.format(data.gasUnitRatePence)}p/kWh`;
         document.getElementById('updated-at').textContent = `Updated ${new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London' }).format(new Date(data.generatedAt))}`;
         document.getElementById('dashboard').hidden = false;
+        document.getElementById('summary-region').hidden = false;
         status.hidden = true;
       } catch (error) {
         status.className = 'message error';
@@ -1560,7 +1695,6 @@
       } finally {
         button.disabled = false;
         button.removeAttribute('aria-busy');
-        button.textContent = 'Refresh data';
       }
     }
 
