@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#183b31">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='12'%20fill='%23183b31'/%3E%3Cpath%20d='M36%208%2017%2035h13l-2%2021%2020-30H35z'%20fill='%23b7d94b'/%3E%3C/svg%3E">
   <title>Monthly energy costs</title>
   <style>
     :root {
@@ -17,6 +18,7 @@
       --electric: #b7d94b;
       --gas: #e78357;
       --ev: #4a8791;
+      --external-ev: #806492;
       --warning: #a64e32;
       --font-display: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
       --font-ui: "Aptos", "Segoe UI", "Trebuchet MS", sans-serif;
@@ -256,6 +258,7 @@
     .bar-segment.electricity { background: var(--electric); }
     .bar-segment.gas { background: var(--gas); }
     .bar-segment.ev { background: var(--ev); }
+    .bar-segment.external-ev { background: var(--external-ev); }
 
     .chart-total {
       text-align: right;
@@ -518,8 +521,24 @@
     td:first-child { text-align: left; }
     tbody tr:last-child td { border-bottom: 0; }
     tbody tr.current { background: #f6f8f2; }
+    tbody tr.monthly-row { cursor: pointer; }
+    tbody tr.monthly-row:hover { background: #edf1e8; }
+    tbody tr.monthly-row.selected { background: #e7eddf; }
 
     .month-cell { font-size: 13px; font-weight: 650; white-space: nowrap; }
+    button.month-select {
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+    }
+
+    button.month-select:hover { background: transparent; }
+    button.month-select:focus-visible { outline: 3px solid #bdd574; outline-offset: 3px; }
     .money { display: block; font-size: 14px; font-weight: 650; }
     .quantity { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; }
     .total-cell { font-weight: 700; }
@@ -830,25 +849,35 @@
           <div class="legend" aria-label="Cost categories">
             <span class="legend-item"><span class="swatch" style="--accent: var(--electric)"></span>Electricity</span>
             <span class="legend-item"><span class="swatch" style="--accent: var(--gas)"></span>Gas</span>
-            <span class="legend-item"><span class="swatch" style="--accent: var(--ev)"></span>EV charge</span>
+            <span class="legend-item"><span class="swatch" style="--accent: var(--ev)"></span>Octopus EV</span>
+            <span class="legend-item"><span class="swatch" style="--accent: var(--external-ev)"></span>External charge points</span>
           </div>
         </div>
         <div id="chart" class="chart" role="group" aria-label="Stacked monthly cost chart. Choose a month to update the summary."></div>
       </section>
 
-      <section class="section" aria-labelledby="efficiency-title">
+      <section class="section" aria-labelledby="table-title">
         <div class="section-heading">
           <div>
-            <p class="section-kicker" id="efficiency-kicker">Miles per kWh</p>
-            <h2 id="efficiency-title">EV efficiency</h2>
-          </div>
-          <div class="legend" aria-label="Efficiency units">
-            <span class="legend-item"><span class="swatch" style="--accent: var(--ev)"></span>mi/kWh</span>
+            <p class="section-kicker">Amounts and usage</p>
+            <h2 id="table-title">Monthly detail</h2>
           </div>
         </div>
-        <div id="efficiency-chart" class="column-chart" role="group" aria-label="Monthly EV efficiency chart"></div>
-        <p id="efficiency-summary" class="efficiency-summary"></p>
-        <p class="chart-note">Miles driven come from the Volvo odometer. Energy is the EV charge total above, combining home sessions and public receipts. Months without odometer history stay blank.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Month</th>
+                <th scope="col">Electricity</th>
+                <th scope="col">Gas</th>
+                <th scope="col">Octopus EV</th>
+                <th scope="col">Total EV</th>
+                <th scope="col">Total</th>
+              </tr>
+            </thead>
+            <tbody id="monthly-rows"></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="section" aria-labelledby="daily-ev-title">
@@ -996,29 +1025,21 @@
         </dialog>
       </section>
 
-      <section class="section" aria-labelledby="table-title">
+      <section class="section" aria-labelledby="efficiency-title">
         <div class="section-heading">
           <div>
-            <p class="section-kicker">Amounts and usage</p>
-            <h2 id="table-title">Monthly detail</h2>
+            <p class="section-kicker" id="efficiency-kicker">Miles per kWh</p>
+            <h2 id="efficiency-title">EV efficiency</h2>
+          </div>
+          <div class="legend" aria-label="Efficiency units">
+            <span class="legend-item"><span class="swatch" style="--accent: var(--ev)"></span>mi/kWh</span>
           </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Month</th>
-                <th scope="col">Electricity</th>
-                <th scope="col">Gas</th>
-                <th scope="col">EV charge</th>
-                <th scope="col">Total</th>
-                <th scope="col" class="text-cell">Data notes</th>
-              </tr>
-            </thead>
-            <tbody id="monthly-rows"></tbody>
-          </table>
-        </div>
+        <div id="efficiency-chart" class="column-chart" role="group" aria-label="Monthly EV efficiency chart"></div>
+        <p id="efficiency-summary" class="efficiency-summary"></p>
+        <p class="chart-note">Miles driven come from the Volvo odometer. Energy is the EV charge total above, combining home sessions and public receipts. Months without odometer history stay blank.</p>
       </section>
+
     </section>
   </main>
 
@@ -1163,6 +1184,11 @@
       for (const row of document.querySelectorAll('#chart .chart-row')) {
         row.setAttribute('aria-pressed', String(row.dataset.month === monthKey));
       }
+      for (const row of document.querySelectorAll('#monthly-rows .monthly-row')) {
+        const selected = row.dataset.month === monthKey;
+        row.classList.toggle('selected', selected);
+        row.querySelector('.month-select').setAttribute('aria-pressed', String(selected));
+      }
     }
 
     function renderChart(months) {
@@ -1170,9 +1196,14 @@
       chart.replaceChildren();
       const maxTotal = Math.max(1, ...months.map(month => month.totalCostGbp));
       const current = currentLondonMonth();
-      const labels = { electricity: 'Electricity', gas: 'Gas', ev: 'EV charging' };
+      const labels = {
+        electricity: 'Electricity',
+        gas: 'Gas',
+        ev: 'Octopus EV charging',
+        'external-ev': 'External charge points',
+      };
 
-      for (const month of months) {
+      for (const month of [...months].reverse()) {
         const row = element('button', `chart-row${month.month === current ? ' current' : ''}`);
         row.type = 'button';
         row.dataset.month = month.month;
@@ -1186,7 +1217,8 @@
         for (const [kind, value] of [
           ['electricity', month.electricityCostGbp],
           ['gas', month.gasCostGbp],
-          ['ev', month.evCostGbp],
+          ['ev', month.octopusEvCostGbp],
+          ['external-ev', month.publicEvCostGbp],
         ]) {
           const segment = element('span', `bar-segment ${kind}`);
           segment.style.width = `${month.totalCostGbp > 0 ? Math.max(0, value / month.totalCostGbp * 100) : 0}%`;
@@ -1371,13 +1403,22 @@
       const ordered = [...months].reverse();
 
       for (const month of ordered) {
-        const row = element('tr', month.month === current ? 'current' : '');
-        row.append(element('th', 'month-cell', monthLabel(month.month)));
-        row.lastElementChild.scope = 'row';
+        const selected = month.month === selectedMonth;
+        const row = element('tr', `monthly-row${month.month === current ? ' current' : ''}${selected ? ' selected' : ''}`);
+        row.dataset.month = month.month;
+        const monthCell = element('th', 'month-cell');
+        monthCell.scope = 'row';
+        const monthButton = element('button', 'month-select', monthLabel(month.month));
+        monthButton.type = 'button';
+        monthButton.setAttribute('aria-pressed', String(selected));
+        monthButton.setAttribute('aria-label', `Show ${monthLabel(month.month)} in the summary`);
+        monthCell.append(monthButton);
+        row.append(monthCell);
 
         const cells = [
           { cost: month.electricityCostGbp, usage: `${quantity.format(month.electricityKwh)} kWh` },
           { cost: month.gasCostGbp, usage: `${quantity.format(month.gasKwh ?? 0)} kWh`, note: `${quantity.format(month.gasM3)} m³ on the meter` },
+          { cost: month.octopusEvKwh > 0 ? month.octopusEvCostGbp : null, usage: month.octopusEvKwh > 0 ? `${quantity.format(month.octopusEvKwh)} kWh` : null },
           { cost: month.evKwh > 0 ? month.evCostGbp : null, usage: month.evKwh > 0 ? `${quantity.format(month.evKwh)} kWh` : null },
         ];
         for (const cell of cells) {
@@ -1398,7 +1439,7 @@
         if (month.electricityUnpricedIntervals > 0) notes.push(`${month.electricityUnpricedIntervals} electricity slots unpriced`);
         if (month.evIncompleteDays > 0) notes.push(`${month.evIncompleteDays} EV days with incomplete cost`);
         if (month.publicChargeCount > 0) notes.push(`${month.publicChargeCount} public charge${month.publicChargeCount === 1 ? '' : 's'} logged`);
-        row.append(element('td', `quality${notes.length ? ' warn' : ''}`, notes.join('; ') || 'Complete'));
+        row.title = notes.join('; ') || 'Complete';
         body.append(row);
       }
     }
@@ -1472,17 +1513,18 @@
       }
     }
 
-    async function loadData() {
+    async function loadData(forceRefresh = false) {
       const status = document.getElementById('status');
       const button = document.getElementById('refresh');
       button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
       button.textContent = 'Refreshing...';
       status.className = 'message';
       status.textContent = 'Loading monthly costs...';
 
       try {
         const [monthlyResponse, chargesResponse, manualEvResponse] = await Promise.all([
-          fetch('/api/monthly-costs', { cache: 'no-store' }),
+          fetch(forceRefresh ? '/api/monthly-costs?refresh=1' : '/api/monthly-costs', { cache: 'no-store' }),
           fetch('/api/public-charges', { cache: 'no-store' }),
           fetch('/api/ev-home-low-rate', { cache: 'no-store' }),
         ]);
@@ -1517,13 +1559,18 @@
         status.textContent = error.message || 'Could not load monthly costs.';
       } finally {
         button.disabled = false;
+        button.removeAttribute('aria-busy');
         button.textContent = 'Refresh data';
       }
     }
 
-    document.getElementById('refresh').addEventListener('click', loadData);
+    document.getElementById('refresh').addEventListener('click', () => loadData(true));
     document.getElementById('chart').addEventListener('click', (event) => {
       const row = event.target.closest('button.chart-row');
+      if (row) selectMonth(row.dataset.month);
+    });
+    document.getElementById('monthly-rows').addEventListener('click', (event) => {
+      const row = event.target.closest('tr.monthly-row');
       if (row) selectMonth(row.dataset.month);
     });
     document.querySelectorAll('[data-dialog-open]').forEach((button) => {

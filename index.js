@@ -53,7 +53,7 @@ function loadConfig() {
   return {
     octopusApiKey: required.OCTOPUS_API_KEY,
     octopusAccountNumber: process.env.OCTOPUS_ACCOUNT_NUMBER || null,
-    dashboardPort: parseInt(process.env.DASHBOARD_PORT || '3000', 10),
+    dashboardPort: parseInt(process.env.DASHBOARD_PORT || '3002', 10),
     gasUnitRatePence: parseFloat(process.env.GAS_UNIT_RATE_PENCE || '6.24'),
     odometer: {
       database: process.env.VOLVO_ODOMETER_DATABASE || 'environmentals',
@@ -498,6 +498,9 @@ async function getMonthlyCosts(influx, gasUnitRatePence, config) {
     gasKwh: 0,
     evCostGbp: 0,
     evKwh: 0,
+    octopusEvCostGbp: 0,
+    octopusEvKwh: 0,
+    publicEvCostGbp: 0,
     evDays: 0,
     publicChargeCount: 0,
     evIncompleteDays: 0,
@@ -555,9 +558,11 @@ async function getMonthlyCosts(influx, gasUnitRatePence, config) {
     const costComplete = row.cost_complete === true || row.cost_complete === 'true';
     const costGbp = (Number(row.charge_cost_pence) || 0) / 100;
     month.evKwh += energyKwh;
+    month.octopusEvKwh += energyKwh;
     day.energyKwh += energyKwh;
     if (costComplete) {
       month.evCostGbp += costGbp;
+      month.octopusEvCostGbp += costGbp;
       day.costGbp += costGbp;
     } else {
       month.evIncompleteDays += 1;
@@ -581,6 +586,7 @@ async function getMonthlyCosts(influx, gasUnitRatePence, config) {
     const costGbp = (Number(row.cost_pence) || 0) / 100;
     month.evKwh += energyKwh;
     month.evCostGbp += costGbp;
+    month.publicEvCostGbp += costGbp;
     day.energyKwh += energyKwh;
     day.costGbp += costGbp;
     dailyEvByMonth.get(month.month).set(date, day);
@@ -885,16 +891,18 @@ function startDashboardServer(influx, config) {
           timestamp: total.timestamp,
         };
 
-        await influx.writePoints([{
-          measurement: 'ev_manual_daily',
-          ...point,
-          fields: { ...point.fields, notes: total.notes },
-        }], { precision: 's' });
-        await influx.writePoints([{
-          measurement: 'ev_charge_daily',
-          ...point,
-          fields: { ...point.fields, cost_complete: true },
-        }], { precision: 's' });
+        await influx.writePoints([
+          {
+            measurement: 'ev_manual_daily',
+            ...point,
+            fields: { ...point.fields, notes: total.notes },
+          },
+          {
+            measurement: 'ev_charge_daily',
+            ...point,
+            fields: { ...point.fields, cost_complete: true },
+          },
+        ], { precision: 's' });
         invalidateMonthlyCostsCache();
 
         response.writeHead(201, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -915,8 +923,15 @@ function startDashboardServer(influx, config) {
       return;
     }
 
-    if (request.method === 'GET' && request.url === '/api/monthly-costs') {
+    if (request.method === 'GET' && (
+      request.url === '/api/monthly-costs' ||
+      request.url.startsWith('/api/monthly-costs?')
+    )) {
       try {
+        const requestUrl = new URL(request.url, 'http://localhost');
+        if (requestUrl.searchParams.get('refresh') === '1') {
+          invalidateMonthlyCostsCache();
+        }
         const monthlyCosts = await getCachedMonthlyCosts();
         response.writeHead(200, {
           'Content-Type': 'application/json; charset=utf-8',
@@ -1230,7 +1245,8 @@ async function syncEvChargeDaily(apiKey, accountNumber, influx) {
     chargeCostPence: Number(row.charge_cost_pence),
   }]));
 
-  const charges = sessions.length > 0
+  const usesSmartFlexSessions = sessions.length > 0;
+  const charges = usesSmartFlexSessions
     ? sessions.map((session) => ({
       start: session.start,
       end: session.end,
@@ -1244,6 +1260,9 @@ async function syncEvChargeDaily(apiKey, accountNumber, influx) {
       date: dispatch.start,
       chargeKwh: Number(dispatch.delta),
     }));
+  const refreshedDays = new Set(
+    usesSmartFlexSessions ? days : days.filter((day) => manualTotals.has(day))
+  );
 
   for (const charge of charges) {
     const start = new Date(charge.start);
@@ -1260,6 +1279,7 @@ async function syncEvChargeDaily(apiKey, accountNumber, influx) {
     const total = totals.get(londonDateKey(new Date(charge.date)));
     if (!total) continue;
 
+    refreshedDays.add(londonDateKey(new Date(charge.date)));
     total.chargeKwh += chargeKwh;
     const costPence = calculateDispatchCostPence({ start, end, delta: chargeKwh }, rates);
     if (costPence === null) {
@@ -1278,7 +1298,12 @@ async function syncEvChargeDaily(apiKey, accountNumber, influx) {
     total.costComplete = true;
   }
 
-  const points = days.map((day) => {
+  if (refreshedDays.size === 0) {
+    console.warn(`${label} No sessions or manual totals were returned; existing daily points were preserved.`);
+    return 0;
+  }
+
+  const points = [...refreshedDays].sort().map((day) => {
     const total = totals.get(day);
     return {
       measurement: 'ev_charge_daily',
